@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Subcult POC</title>
+    <style>
+        body { font: 14px/1.4 system-ui, sans-serif; max-width: 960px; margin: 16px auto; padding: 0 16px; }
+        section { border: 1px solid #ccc; border-radius: 6px; padding: 12px; margin-bottom: 16px; }
+        label { display: block; margin: 6px 0; }
+        input, select, textarea { width: 100%; box-sizing: border-box; }
+        .object { border-top: 1px solid #eee; padding: 8px 0; }
+        .chip { display: inline-block; background: #eee; border-radius: 4px; padding: 0 6px; margin: 2px; cursor: pointer; }
+        pre { background: #f6f6f6; padding: 8px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Subcult POC</h1>
+
+    <section>
+        <h2>Status</h2>
+        <button id="refresh-status">Refresh</button>
+        <pre id="status"></pre>
+    </section>
+
+    <section>
+        <h2>Add music object</h2>
+        <form id="create">
+            <label>Author <input name="author" required value="tester"></label>
+            <label>Kind
+                <select name="kind"><option>track</option><option>release</option><option>radio_show</option></select>
+            </label>
+            <label>Title <input name="title" required></label>
+            <label>Note (why it matters) <textarea name="note" required rows="3"></textarea></label>
+            <label>External URL <input name="externalUrl" type="url"></label>
+            <label>Tags, comma separated <input name="tags" placeholder="london, dub"></label>
+            <label>Other entities, one per line as type:name
+                <textarea name="others" rows="3" placeholder="artist:King Tubby&#10;label:Studio One&#10;place:London"></textarea>
+            </label>
+            <label>Audio <input name="audio" type="file" accept="audio/*"></label>
+            <label>Artwork <input name="artwork" type="file" accept="image/*"></label>
+            <button>Publish</button>
+        </form>
+        <pre id="create-result"></pre>
+    </section>
+
+    <section>
+        <h2>Browse</h2>
+        <label>Filter by tags (all must match), comma separated <input id="filter" placeholder="london, dub"></label>
+        <label>Entity autocomplete <input id="autocomplete"></label>
+        <div id="suggestions"></div>
+        <h3 id="list-title">Latest</h3>
+        <div id="objects"></div>
+    </section>
+
+    <script src="app.js"></script>
+</body>
+</html>

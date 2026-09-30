@@ -1,0 +1,7 @@
+{
+  "name": "@subcult/frontend",
+  "private": true,
+  "scripts": {
+    "typecheck": "true"
+  }
+}

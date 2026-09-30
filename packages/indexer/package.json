@@ -1,0 +1,15 @@
+{
+  "name": "@subcult/indexer",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "replay": "tsx src/replay.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@subcult/shared": "workspace:*",
+    "tsx": "^4.20.0",
+    "viem": "^2.37.0"
+  }
+}
