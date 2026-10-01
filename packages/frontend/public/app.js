@@ -12,6 +12,10 @@ function entityChip(entity) {
 }
 
 function renderObjects(objects) {
+    if (objects.length === 0) {
+        $('objects').replaceChildren(el('p', {}, 'No matching objects.'))
+        return
+    }
     $('objects').replaceChildren(
         ...objects.map(o =>
             el(
@@ -79,7 +83,11 @@ $('autocomplete').addEventListener('input', event => {
     }, 200)
 })
 
-$('filter').addEventListener('change', loadObjects)
+let filterTimer
+$('filter').addEventListener('input', () => {
+    clearTimeout(filterTimer)
+    filterTimer = setTimeout(loadObjects, 300)
+})
 $('refresh-status').addEventListener('click', refreshStatus)
 
 loadObjects()

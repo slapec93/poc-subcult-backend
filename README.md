@@ -13,29 +13,26 @@ Posts are stored on Swarm, announced on-chain through a `Notify` contract, and s
 
 Event ids are Swarm references, and every write is `ON CONFLICT DO NOTHING`, so an event applied by the API and later seen on-chain by the indexer is stored once.
 
-## Services
+## Compose files
 
-| Service | Profile | Port |
+| File | Services | Use |
 | --- | --- | --- |
-| `postgres` | default | 5432 |
-| `backend` | default | `BACKEND_PORT` (3000) |
-| `indexer` | default | none |
-| `frontend` | default | `FRONTEND_PORT` (8080) |
-| `anvil` + `deploy-contract` | `anvil` | 8545 |
+| `docker-compose.dev.yml` | `postgres`, `backend`, `indexer`, `frontend`; `anvil` + `deploy-contract` with `--profile anvil` | Local development |
+| `docker-compose.yml` | `backend`, `indexer`, `frontend` | Dev server: external Postgres via `DATABASE_URL`, Bee via the shared `swarm` network |
 
-## Run
+## Run locally
 
 ```sh
 cp .env.example .env
 ```
 
-Set `BEE_URL` and `POSTAGE_BATCH_ID` for any Bee node with a usable batch.
+Set `BEE_URL` and `POSTAGE_BATCH_ID` for any Bee node with a usable batch. The default `BEE_URL` points at a Bee node on the host (`http://host.docker.internal:1633`).
 
 Local chain:
 
 ```sh
 # in .env, uncomment the Anvil block
-docker compose --profile anvil up --build
+docker compose -f docker-compose.dev.yml --profile anvil up --build
 ```
 
 Gnosis (shared contract from livecoding.eth.limo):
@@ -43,12 +40,21 @@ Gnosis (shared contract from livecoding.eth.limo):
 ```sh
 # in .env: OPERATOR_PRIVATE_KEY with xDAI, START_BLOCK near the current head,
 # ALLOWED_SENDERS=<operator address> to skip other apps' events
-docker compose up --build
+docker compose -f docker-compose.dev.yml up --build
 ```
 
-The default `BEE_URL` points at a Bee node on the host (`http://host.docker.internal:1633`).
-
 Open http://localhost:8080.
+
+## Dev server
+
+`docker-compose.yml` joins two external networks: `swarm` (Bee as `bee:1633`) and the Postgres project's network (`DB_NETWORK`, default `postgres_default`, database host `postgres`). In `.env`:
+
+```sh
+DATABASE_URL=postgres://subcult:<password>@postgres:5432/subcult
+BEE_URL=http://bee:1633
+```
+
+Load `db/schema.sql` into the database once before the first start. Backend and frontend bind to `127.0.0.1` only.
 
 ## API
 
