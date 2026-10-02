@@ -8,7 +8,7 @@ if (!process.argv.includes('--yes')) {
 const db = createDb(required('DATABASE_URL'))
 const startBlock = required('START_BLOCK')
 
-await db.query(`TRUNCATE object_entities, music_objects, entities, chain_events`)
+await db.query(`TRUNCATE node_tags, connections, notes, node_aliases, nodes, records, chain_events`)
 await db.query(
     `INSERT INTO indexer_state (id, next_block) VALUES (1, $1)
      ON CONFLICT (id) DO UPDATE SET next_block = EXCLUDED.next_block`,

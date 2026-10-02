@@ -5,53 +5,119 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Subcult POC</title>
     <style>
-        body { font: 14px/1.4 system-ui, sans-serif; max-width: 960px; margin: 16px auto; padding: 0 16px; }
+        body { font: 14px/1.4 system-ui, sans-serif; max-width: 1100px; margin: 16px auto; padding: 0 16px; }
         section { border: 1px solid #ccc; border-radius: 6px; padding: 12px; margin-bottom: 16px; }
         label { display: block; margin: 6px 0; }
         input, select, textarea { width: 100%; box-sizing: border-box; }
-        .object { border-top: 1px solid #eee; padding: 8px 0; }
+        .row { display: flex; gap: 8px; }
+        .row > * { flex: 1; }
+        .columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        @media (max-width: 800px) { .columns { grid-template-columns: 1fr; } }
+        .card { border-top: 1px solid #eee; padding: 8px 0; cursor: pointer; }
+        .card:hover { background: #fafafa; }
+        .kind { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #666; }
         .chip { display: inline-block; background: #eee; border-radius: 4px; padding: 0 6px; margin: 2px; cursor: pointer; }
-        pre { background: #f6f6f6; padding: 8px; overflow-x: auto; }
+        .muted { color: #777; font-size: 12px; }
+        .note { border-left: 3px solid #ddd; padding-left: 8px; margin: 8px 0; }
+        .error { color: #b00; }
+        pre { background: #f6f6f6; padding: 8px; overflow-x: auto; max-height: 200px; }
+        [hidden] { display: none !important; }
     </style>
 </head>
 <body>
     <h1>Subcult POC</h1>
+    <label>Acting as <input id="author" value="tester"></label>
 
     <section>
-        <h2>Status</h2>
-        <button id="refresh-status">Refresh</button>
+        <h2>Status <button id="refresh-status">Refresh</button></h2>
         <pre id="status"></pre>
     </section>
 
-    <section>
-        <h2>Add music object</h2>
-        <form id="create">
-            <label>Author <input name="author" required value="tester"></label>
-            <label>Kind
-                <select name="kind"><option>track</option><option>release</option><option>radio_show</option></select>
-            </label>
-            <label>Title <input name="title" required></label>
-            <label>Note (why it matters) <textarea name="note" required rows="3"></textarea></label>
-            <label>Link, e.g. YouTube (audio or link required) <input name="externalUrl" type="url"></label>
-            <label>Tags, comma separated <input name="tags" placeholder="london, dub"></label>
-            <label>Other entities, one per line as type:name
-                <textarea name="others" rows="3" placeholder="artist:King Tubby&#10;label:Studio One&#10;place:London"></textarea>
-            </label>
-            <label>Audio <input name="audio" type="file" accept="audio/*"></label>
-            <label>Artwork <input name="artwork" type="file" accept="image/*"></label>
-            <button>Publish</button>
-        </form>
-        <pre id="create-result"></pre>
-    </section>
+    <div class="columns">
+        <div>
+            <section>
+                <h2>Add a node</h2>
+                <p class="muted">If the node already exists (same link, or same name and place), your note and tags are added to it.</p>
+                <form id="create">
+                    <div class="row">
+                        <label>Kind
+                            <select name="kind"><option>sound</option><option>person</option><option>place</option></select>
+                        </label>
+                        <label class="sound-only">Format
+                            <select name="format">
+                                <option value="">—</option><option>track</option><option>tape</option><option>release</option>
+                                <option value="dj_set">DJ set</option><option value="radio_show">radio show</option>
+                            </select>
+                        </label>
+                    </div>
+                    <label>Title <input name="title" required></label>
+                    <div class="row">
+                        <label>Role <input name="role" placeholder="Tape, Venue, Duo…"></label>
+                        <label>Where <input name="where" placeholder="Lavapiés, Madrid"></label>
+                        <label>Years <input name="years" placeholder="2001–09"></label>
+                    </div>
+                    <label>Link <input name="externalUrl" type="url" placeholder="https://youtube.com/watch?v=…"></label>
+                    <label>Note: why it matters <span class="sound-only muted">(required for sounds)</span>
+                        <textarea name="note" rows="3"></textarea>
+                    </label>
+                    <label>Tags, comma separated <input name="tags" placeholder="dub, cassette, live"></label>
+                    <div class="row">
+                        <label class="sound-only">Audio <input name="audio" type="file" accept="audio/*"></label>
+                        <label>Artwork <input name="artwork" type="file" accept="image/*"></label>
+                    </div>
+                    <button>Save</button>
+                </form>
+                <pre id="create-result" hidden></pre>
+            </section>
 
-    <section>
-        <h2>Browse</h2>
-        <label>Filter by entity names, any type (all must match), comma separated <input id="filter" placeholder="london, dub"></label>
-        <label>Entity autocomplete <input id="autocomplete"></label>
-        <div id="suggestions"></div>
-        <h3 id="list-title">Latest</h3>
-        <div id="objects"></div>
-    </section>
+            <section>
+                <h2>Browse</h2>
+                <div class="row">
+                    <label>Kind
+                        <select id="filter-kind"><option value="">all</option><option>sound</option><option>person</option><option>place</option></select>
+                    </label>
+                    <label>Title <input id="filter-q"></label>
+                    <label>Tags (all) <input id="filter-tags" placeholder="dub, live"></label>
+                </div>
+                <div id="nodes"></div>
+            </section>
+        </div>
+
+        <section id="detail" hidden>
+            <div class="kind" id="detail-kind"></div>
+            <h2 id="detail-title"></h2>
+            <div class="muted" id="detail-meta"></div>
+            <div id="detail-media"></div>
+            <div id="detail-tags"></div>
+            <form id="add-tags" class="row">
+                <input name="tags" placeholder="add tags, comma separated">
+                <button style="flex: 0">Tag</button>
+            </form>
+
+            <h3>Connections</h3>
+            <div id="detail-connections"></div>
+            <form id="add-connection">
+                <div class="row">
+                    <label>Type <select name="type"></select></label>
+                    <label>To <input name="target" placeholder="search, or type a new name" autocomplete="off"></label>
+                    <label class="new-place">Where (new place) <input name="targetWhere"></label>
+                </div>
+                <div id="target-suggestions"></div>
+                <label>Note: why they're connected <input name="note" required></label>
+                <label>Source (optional) <input name="source" type="url"></label>
+                <button>Connect</button>
+                <span class="muted" id="target-choice"></span>
+            </form>
+
+            <h3>Notes</h3>
+            <form id="add-note">
+                <textarea name="text" rows="2" placeholder="Where did you first hear it? What should people listen for?" required></textarea>
+                <button>Add note</button>
+            </form>
+            <div id="detail-notes"></div>
+            <p class="error" id="detail-error"></p>
+        </section>
+    </div>
 
     <script src="app.js"></script>
 </body>

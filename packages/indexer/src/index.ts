@@ -1,4 +1,14 @@
-import { applyEvent, createChainClient, createDb, notifyAbi, parseEvent, Swarm, withTransaction } from '@subcult/shared'
+import {
+    applyRecord,
+    createChainClient,
+    createDb,
+    notifyAbi,
+    parseRecord,
+    RecordError,
+    Swarm,
+    withTransaction,
+    type SubcultRecord,
+} from '@subcult/shared'
 import type { Hash } from 'viem'
 import { config } from './config.ts'
 
@@ -63,19 +73,22 @@ async function setStatus(event: PendingEvent, status: string, error?: string) {
     ])
 }
 
-async function processEvent(event: PendingEvent) {
+type Fetched = { record: SubcultRecord } | { ignored: string }
+
+async function fetchRecord(event: PendingEvent): Promise<Fetched> {
     if (config.allowedSenders.length > 0) {
         const tx = await chain.getTransaction({ hash: event.tx_hash })
         if (!config.allowedSenders.includes(tx.from.toLowerCase())) {
-            return setStatus(event, 'ignored', `sender ${tx.from} not allowed`)
+            return { ignored: `sender ${tx.from} not allowed` }
         }
     }
-    const parsed = parseEvent(await swarm.downloadBytes(event.swarm_ref))
-    if (!parsed) {
-        return setStatus(event, 'ignored', 'not a subcult event')
-    }
+    const record = parseRecord(await swarm.downloadBytes(event.swarm_ref))
+    return record ? { record } : { ignored: 'not a subcult record' }
+}
+
+async function applyFetched(event: PendingEvent, record: SubcultRecord) {
     await withTransaction(db, async client => {
-        await applyEvent(client, event.swarm_ref, parsed, {
+        await applyRecord(client, event.swarm_ref, record, {
             blockNumber: BigInt(event.block_number),
             logIndex: event.log_index,
             txHash: event.tx_hash,
@@ -98,7 +111,7 @@ async function retryLater(event: PendingEvent, err: unknown) {
     console.error(`Event ${event.swarm_ref} attempt ${attempts} failed (${status}):`, err)
 }
 
-// add_object is commutative, so a batch can be applied in parallel; order-dependent events will need a sequential path.
+// Fetches run in parallel; records apply in chain order, since notes and connections need the nodes they reference.
 async function processPending(): Promise<number> {
     const { rows } = await db.query<PendingEvent>(
         `SELECT block_number, log_index, tx_hash, swarm_ref, attempts FROM chain_events
@@ -106,7 +119,18 @@ async function processPending(): Promise<number> {
          ORDER BY block_number, log_index LIMIT $1`,
         [config.concurrency],
     )
-    await Promise.all(rows.map(event => processEvent(event).catch(err => retryLater(event, err))))
+    const fetched = await Promise.allSettled(rows.map(fetchRecord))
+    for (const [i, event] of rows.entries()) {
+        const result = fetched[i]
+        try {
+            if (result.status === 'rejected') throw result.reason
+            if ('ignored' in result.value) await setStatus(event, 'ignored', result.value.ignored)
+            else await applyFetched(event, result.value.record)
+        } catch (err) {
+            if (err instanceof RecordError && !err.retryable) await setStatus(event, 'ignored', err.message)
+            else await retryLater(event, err)
+        }
+    }
     return rows.length
 }
 

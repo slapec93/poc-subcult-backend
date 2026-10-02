@@ -1,17 +1,30 @@
 # Subcult backend POC
 
-Posts are stored on Swarm, announced on-chain through a `Notify` contract, and served from Postgres. The indexer can rebuild Postgres from the chain alone.
+Implements the node model from `DATA_MODELS.md`: nodes (sound, person, place) with one identity each, typed and authored connections, many notes per node, and plain-word tags. Every contribution is a signed record on Swarm, announced on-chain through a `Notify` contract and served from Postgres. The indexer can rebuild Postgres from the chain alone.
+
+## Records
+
+| Record | Creates |
+| --- | --- |
+| `add_node` | A node; may carry the first saver's note and tags. A sound needs a note, and audio or a link |
+| `add_note` | A note on a node |
+| `add_connection` | A typed connection between two nodes, with a required note and an optional source |
+| `add_tag` | A tag on a node |
+
+Records use format version 2 and share an envelope: `app`, `v`, `type`, `author`, `createdAt`, `nonce`, `signature`, `payload`. A node's id is the Swarm reference of its `add_node` record. A node with the same identity (a sound's source URL, a person's name, a place's name and location) is never created twice: the API adds to the existing node, and a duplicate `add_node` from another operator becomes an alias of the first.
+
+Connection types: Recorded by, Played by DJ, Played at, Recorded at, Played in set, Continues in, Resident at. Each type limits which node kinds it joins (`packages/shared/src/model.ts`).
 
 ## Packages
 
 | Package | Role |
 | --- | --- |
-| `packages/backend` | API server: uploads media and event JSON to Swarm, writes Postgres, emits `notify(swarmRef)` via an outbox |
-| `packages/indexer` | Reads `Notification` events, fetches the event JSON from Swarm, applies it to Postgres |
-| `packages/shared` | Event schema, idempotent `applyEvent`, Swarm and chain helpers used by both |
+| `packages/backend` | API server: uploads media and record JSON to Swarm, writes Postgres, emits `notify(swarmRef)` via an outbox |
+| `packages/indexer` | Reads `Notification` events, fetches records from Swarm in parallel and applies them in chain order |
+| `packages/shared` | Record schemas, node identity, connection types, idempotent `applyRecord`, Swarm and chain helpers |
 | `packages/frontend` | Static test page served by nginx, proxies `/api` to the backend |
 
-Event ids are Swarm references, and every write is `ON CONFLICT DO NOTHING`, so an event applied by the API and later seen on-chain by the indexer is stored once.
+Record ids are Swarm references, and every write is idempotent, so a record applied by the API and later seen on-chain by the indexer is stored once.
 
 ## Compose files
 
@@ -60,11 +73,14 @@ Load `db/schema.sql` into the database once before the first start, or run `scri
 
 | Method | Path | |
 | --- | --- | --- |
-| `POST` | `/objects` | multipart: `author`, `kind`, `title`, `note`, `externalUrl?`, `entities` (JSON `[{type, name}]`), `audio?`, `artwork?` |
-| `GET` | `/objects?name=a&name=b&entity=<id>` | objects linked to all given entities, by name or id, whatever type they were linked as |
-| `GET` | `/objects/:id` | one object with its entities |
-| `GET` | `/entities?q=` | autocomplete |
-| `GET` | `/entities/:id` | entity, the types it is used as, and its objects |
+| `POST` | `/nodes` | multipart: `author`, `kind`, `title`, `role?`, `where?`, `years?`, `externalUrl?`, `format?`, `note?`, `tags?` (comma separated), `audio?`, `artwork?`. Returns `existing: true` when it added to an existing node |
+| `GET` | `/nodes?kind=&q=&tag=a&tag=b` | nodes, newest first; tags must all match |
+| `GET` | `/nodes/:id` | node with its tags, notes and connections, each connection labelled from this node's side |
+| `POST` | `/nodes/:id/notes` | JSON `{author, text}` |
+| `POST` | `/nodes/:id/tags` | JSON `{author, tags: []}` |
+| `POST` | `/connections` | JSON `{author, from, type, to \| toNode: {kind, title, where?}, note, source?}`; `toNode` finds or creates the target |
+| `GET` | `/connection-types` | types with their allowed node kinds |
+| `GET` | `/tags?q=` | tag autocomplete with counts |
 | `GET` | `/media/:ref` | streams a Swarm file, `Range` supported |
 | `GET` | `/status` | outbox, indexer cursor and confirmation counts |
 
@@ -74,8 +90,8 @@ Load `db/schema.sql` into the database once before the first start, or run `scri
 docker compose exec indexer pnpm replay --yes
 ```
 
-Wipes the indexed tables and resets the cursor to `START_BLOCK`; the running indexer rebuilds everything from chain and Swarm. Posts not yet on-chain reappear once the outbox emits them.
+Wipes the indexed tables and resets the cursor to `START_BLOCK`; the running indexer rebuilds everything from chain and Swarm. Records not yet on-chain reappear once the outbox emits them.
 
 ## Not in the POC
 
-Auth and user signatures, subcults, follows, payments and private parts, edits and deletes.
+Auth and user signatures, label/show/subcult nodes, placements, follows and saves, payments and private parts, edits, retractions and merges.

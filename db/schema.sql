@@ -1,42 +1,74 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
-CREATE TYPE entity_type AS ENUM ('artist', 'label', 'place', 'radio_show', 'event', 'tag');
-CREATE TYPE object_kind AS ENUM ('track', 'release', 'radio_show');
-
-CREATE TABLE entities (
-  id              text PRIMARY KEY,
-  name            text NOT NULL,
-  normalized_name text NOT NULL UNIQUE,
-  created_at      timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX entities_name_trgm ON entities USING GIN (normalized_name gin_trgm_ops);
-
-CREATE TABLE music_objects (
+-- Every applied record, as published on Swarm; ids elsewhere are the refs of the records that created them.
+CREATE TABLE records (
   id           text PRIMARY KEY,
+  type         text NOT NULL,
   author       text NOT NULL,
-  kind         object_kind NOT NULL,
-  title        text NOT NULL,
-  note         text NOT NULL CHECK (note <> ''),
-  artwork_ref  text,
-  audio_ref    text,
-  external_url text,
   created_at   timestamptz NOT NULL,
+  body         jsonb NOT NULL,
   block_number bigint,
   log_index    int,
-  tx_hash      text,
-  CHECK (audio_ref IS NOT NULL OR external_url IS NOT NULL)
+  tx_hash      text
 );
-CREATE INDEX music_objects_created ON music_objects (created_at DESC);
-CREATE INDEX music_objects_author ON music_objects (author, created_at DESC);
+CREATE INDEX records_author ON records (author, created_at DESC);
 
--- The type lives on the link: one object may use "london" as a place, another as a tag.
-CREATE TABLE object_entities (
-  object_id text NOT NULL REFERENCES music_objects ON DELETE CASCADE,
-  entity_id text NOT NULL REFERENCES entities ON DELETE CASCADE,
-  type      entity_type NOT NULL,
-  PRIMARY KEY (entity_id, object_id, type)
+CREATE TABLE nodes (
+  id           text PRIMARY KEY REFERENCES records,
+  kind         text NOT NULL,
+  title        text NOT NULL,
+  role         text,
+  locality     text,
+  years        text,
+  external_url text,
+  format       text,
+  audio_ref    text,
+  artwork_ref  text,
+  identity_key text UNIQUE,
+  added_by     text NOT NULL,
+  created_at   timestamptz NOT NULL
 );
-CREATE INDEX object_entities_object ON object_entities (object_id);
+CREATE INDEX nodes_kind_created ON nodes (kind, created_at DESC);
+CREATE INDEX nodes_created ON nodes (created_at DESC);
+CREATE INDEX nodes_title_trgm ON nodes USING GIN (lower(title) gin_trgm_ops);
+
+-- A creation record for a node that already existed points here instead of creating a duplicate.
+CREATE TABLE node_aliases (
+  alias_id text PRIMARY KEY REFERENCES records,
+  node_id  text NOT NULL REFERENCES nodes
+);
+
+CREATE TABLE notes (
+  id         text PRIMARY KEY REFERENCES records,
+  node_id    text NOT NULL REFERENCES nodes,
+  author     text NOT NULL,
+  text       text NOT NULL,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX notes_node ON notes (node_id, created_at DESC);
+
+CREATE TABLE connections (
+  id         text PRIMARY KEY REFERENCES records,
+  from_id    text NOT NULL REFERENCES nodes,
+  type       text NOT NULL,
+  to_id      text NOT NULL REFERENCES nodes,
+  author     text NOT NULL,
+  note       text NOT NULL,
+  source     text,
+  created_at timestamptz NOT NULL,
+  UNIQUE (from_id, type, to_id)
+);
+CREATE INDEX connections_to ON connections (to_id);
+
+CREATE TABLE node_tags (
+  node_id    text NOT NULL REFERENCES nodes,
+  tag        text NOT NULL,
+  record_id  text NOT NULL REFERENCES records,
+  added_by   text NOT NULL,
+  created_at timestamptz NOT NULL,
+  PRIMARY KEY (node_id, tag)
+);
+CREATE INDEX node_tags_tag ON node_tags (tag);
 
 CREATE TABLE chain_outbox (
   swarm_ref       text PRIMARY KEY,
