@@ -42,17 +42,6 @@ services:
       - swarm
       - db
 
-  frontend:
-    image: nginx:alpine
-    restart: unless-stopped
-    volumes:
-      - ./packages/frontend/public:/usr/share/nginx/html:ro
-      - ./packages/frontend/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    ports:
-      - "127.0.0.1:${FRONTEND_PORT:-8080}:80"
-    depends_on:
-      - backend
-
 networks:
   # Shared with the bee-services project, which serves Bee as `bee:1633`.
   swarm:

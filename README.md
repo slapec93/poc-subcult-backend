@@ -18,7 +18,7 @@ Event ids are Swarm references, and every write is `ON CONFLICT DO NOTHING`, so 
 | File | Services | Use |
 | --- | --- | --- |
 | `docker-compose.dev.yml` | `postgres`, `backend`, `indexer`, `frontend`; `anvil` + `deploy-contract` with `--profile anvil` | Local development |
-| `docker-compose.yml` | `backend`, `indexer`, `frontend` | Dev server: external Postgres via `DATABASE_URL`, Bee via the shared `swarm` network |
+| `docker-compose.yml` | `backend`, `indexer` | Dev server: external Postgres via `DATABASE_URL`, Bee via the shared `swarm` network |
 
 ## Run locally
 
@@ -54,7 +54,7 @@ DATABASE_URL=postgres://subcult:<password>@postgres:5432/subcult
 BEE_URL=http://bee:1633
 ```
 
-Load `db/schema.sql` into the database once before the first start. Backend and frontend bind to `127.0.0.1` only.
+Load `db/schema.sql` into the database once before the first start. The backend binds to `127.0.0.1` only; the frontend is deployed to Swarm separately.
 
 ## API
 
