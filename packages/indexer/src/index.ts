@@ -17,8 +17,18 @@ interface PendingEvent {
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
 
+async function ensureCursor() {
+    await db.query(`INSERT INTO indexer_state (id, next_block) VALUES (1, $1) ON CONFLICT DO NOTHING`, [
+        config.startBlock.toString(),
+    ])
+}
+
 async function scanOnce(): Promise<boolean> {
     const { rows } = await db.query<{ next_block: string }>(`SELECT next_block FROM indexer_state WHERE id = 1`)
+    if (rows.length === 0) {
+        await ensureCursor()
+        return true
+    }
     const fromBlock = BigInt(rows[0].next_block)
     const safeHead = (await chain.getBlockNumber()) - config.confirmations
     if (fromBlock > safeHead) {
@@ -31,7 +41,7 @@ async function scanOnce(): Promise<boolean> {
         for (const log of logs) {
             if (!log.args.data) continue
             await client.query(
-                `INSERT INTO chain_event (block_number, log_index, tx_hash, swarm_ref) VALUES ($1, $2, $3, $4)
+                `INSERT INTO chain_events (block_number, log_index, tx_hash, swarm_ref) VALUES ($1, $2, $3, $4)
                  ON CONFLICT DO NOTHING`,
                 [log.blockNumber.toString(), log.logIndex, log.transactionHash, log.args.data.slice(2)],
             )
@@ -45,7 +55,7 @@ async function scanOnce(): Promise<boolean> {
 }
 
 async function setStatus(event: PendingEvent, status: string, error?: string) {
-    await db.query(`UPDATE chain_event SET status = $3, last_error = $4 WHERE block_number = $1 AND log_index = $2`, [
+    await db.query(`UPDATE chain_events SET status = $3, last_error = $4 WHERE block_number = $1 AND log_index = $2`, [
         event.block_number,
         event.log_index,
         status,
@@ -80,7 +90,7 @@ async function retryLater(event: PendingEvent, err: unknown) {
     const status = attempts >= config.maxAttempts ? 'failed' : 'pending'
     const backoffMs = Math.min(1000 * 2 ** attempts, 10 * 60_000)
     await db.query(
-        `UPDATE chain_event SET attempts = $3, status = $4, last_error = $5,
+        `UPDATE chain_events SET attempts = $3, status = $4, last_error = $5,
          next_attempt_at = now() + ($6 || ' milliseconds')::interval
          WHERE block_number = $1 AND log_index = $2`,
         [event.block_number, event.log_index, attempts, status, String(err), backoffMs],
@@ -91,7 +101,7 @@ async function retryLater(event: PendingEvent, err: unknown) {
 // add_object is commutative, so a batch can be applied in parallel; order-dependent events will need a sequential path.
 async function processPending(): Promise<number> {
     const { rows } = await db.query<PendingEvent>(
-        `SELECT block_number, log_index, tx_hash, swarm_ref, attempts FROM chain_event
+        `SELECT block_number, log_index, tx_hash, swarm_ref, attempts FROM chain_events
          WHERE status = 'pending' AND next_attempt_at <= now()
          ORDER BY block_number, log_index LIMIT $1`,
         [config.concurrency],
@@ -111,9 +121,7 @@ async function loop(name: string, step: () => Promise<boolean | number>) {
     }
 }
 
-await db.query(`INSERT INTO indexer_state (id, next_block) VALUES (1, $1) ON CONFLICT DO NOTHING`, [
-    config.startBlock.toString(),
-])
+await ensureCursor()
 console.log(
     `Indexing ${config.chain.contractAddress} on chain ${config.chain.chainId}` +
         (config.allowedSenders.length ? `, senders: ${config.allowedSenders.join(', ')}` : ', any sender'),

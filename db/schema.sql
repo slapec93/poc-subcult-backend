@@ -3,17 +3,15 @@ CREATE EXTENSION IF NOT EXISTS pg_trgm;
 CREATE TYPE entity_type AS ENUM ('artist', 'label', 'place', 'radio_show', 'event', 'tag');
 CREATE TYPE object_kind AS ENUM ('track', 'release', 'radio_show');
 
-CREATE TABLE entity (
+CREATE TABLE entities (
   id              text PRIMARY KEY,
-  type            entity_type NOT NULL,
   name            text NOT NULL,
-  normalized_name text NOT NULL,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (type, normalized_name)
+  normalized_name text NOT NULL UNIQUE,
+  created_at      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX entity_name_trgm ON entity USING GIN (normalized_name gin_trgm_ops);
+CREATE INDEX entities_name_trgm ON entities USING GIN (normalized_name gin_trgm_ops);
 
-CREATE TABLE music_object (
+CREATE TABLE music_objects (
   id           text PRIMARY KEY,
   author       text NOT NULL,
   kind         object_kind NOT NULL,
@@ -25,17 +23,20 @@ CREATE TABLE music_object (
   created_at   timestamptz NOT NULL,
   block_number bigint,
   log_index    int,
-  tx_hash      text
+  tx_hash      text,
+  CHECK (audio_ref IS NOT NULL OR external_url IS NOT NULL)
 );
-CREATE INDEX music_object_created ON music_object (created_at DESC);
-CREATE INDEX music_object_author ON music_object (author, created_at DESC);
+CREATE INDEX music_objects_created ON music_objects (created_at DESC);
+CREATE INDEX music_objects_author ON music_objects (author, created_at DESC);
 
-CREATE TABLE object_entity (
-  object_id text NOT NULL REFERENCES music_object ON DELETE CASCADE,
-  entity_id text NOT NULL REFERENCES entity ON DELETE CASCADE,
-  PRIMARY KEY (entity_id, object_id)
+-- The type lives on the link: one object may use "london" as a place, another as a tag.
+CREATE TABLE object_entities (
+  object_id text NOT NULL REFERENCES music_objects ON DELETE CASCADE,
+  entity_id text NOT NULL REFERENCES entities ON DELETE CASCADE,
+  type      entity_type NOT NULL,
+  PRIMARY KEY (entity_id, object_id, type)
 );
-CREATE INDEX object_entity_object ON object_entity (object_id);
+CREATE INDEX object_entities_object ON object_entities (object_id);
 
 CREATE TABLE chain_outbox (
   swarm_ref       text PRIMARY KEY,
@@ -47,7 +48,7 @@ CREATE TABLE chain_outbox (
   created_at      timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE chain_event (
+CREATE TABLE chain_events (
   block_number    bigint NOT NULL,
   log_index       int NOT NULL,
   tx_hash         text NOT NULL,
@@ -58,7 +59,7 @@ CREATE TABLE chain_event (
   last_error      text,
   PRIMARY KEY (block_number, log_index)
 );
-CREATE INDEX chain_event_pending ON chain_event (next_attempt_at) WHERE status = 'pending';
+CREATE INDEX chain_events_pending ON chain_events (next_attempt_at) WHERE status = 'pending';
 
 CREATE TABLE indexer_state (
   id         int PRIMARY KEY CHECK (id = 1),

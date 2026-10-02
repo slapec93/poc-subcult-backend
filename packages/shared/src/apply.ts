@@ -17,7 +17,7 @@ export async function applyEvent(client: DbClient, ref: string, event: SubcultEv
     }
     if (position) {
         await client.query(
-            `UPDATE music_object SET block_number = $2, log_index = $3, tx_hash = $4
+            `UPDATE music_objects SET block_number = $2, log_index = $3, tx_hash = $4
              WHERE id = $1 AND block_number IS NULL`,
             [ref, position.blockNumber.toString(), position.logIndex, position.txHash],
         )
@@ -27,7 +27,7 @@ export async function applyEvent(client: DbClient, ref: string, event: SubcultEv
 async function applyAddObject(client: DbClient, ref: string, event: AddObjectEvent) {
     const { object } = event
     const inserted = await client.query(
-        `INSERT INTO music_object (id, author, kind, title, note, artwork_ref, audio_ref, external_url, created_at)
+        `INSERT INTO music_objects (id, author, kind, title, note, artwork_ref, audio_ref, external_url, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO NOTHING`,
         [
@@ -46,15 +46,14 @@ async function applyAddObject(client: DbClient, ref: string, event: AddObjectEve
         return
     }
     for (const entity of object.entities) {
-        const id = entityId(entity)
+        const id = entityId(entity.name)
         await client.query(
-            `INSERT INTO entity (id, type, name, normalized_name) VALUES ($1, $2, $3, $4)
-             ON CONFLICT (id) DO NOTHING`,
-            [id, entity.type, entity.name.trim(), normalizeName(entity.name)],
+            `INSERT INTO entities (id, name, normalized_name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING`,
+            [id, entity.name.trim(), normalizeName(entity.name)],
         )
         await client.query(
-            `INSERT INTO object_entity (object_id, entity_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-            [ref, id],
+            `INSERT INTO object_entities (object_id, entity_id, type) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+            [ref, id, entity.type],
         )
     }
 }

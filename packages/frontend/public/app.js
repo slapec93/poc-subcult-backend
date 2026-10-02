@@ -8,7 +8,8 @@ function el(tag, props = {}, ...children) {
 }
 
 function entityChip(entity) {
-    return el('span', { className: 'chip', title: entity.type, onclick: () => showEntity(entity.id) }, `${entity.type}: ${entity.name}`)
+    const label = entity.types ? `${entity.name} (${entity.types.join(', ')})` : `${entity.type}: ${entity.name}`
+    return el('span', { className: 'chip', onclick: () => showEntity(entity.id) }, label)
 }
 
 function renderObjects(objects) {
@@ -36,15 +37,15 @@ function renderObjects(objects) {
 }
 
 async function loadObjects() {
-    const tags = $('filter').value.split(',').map(t => t.trim()).filter(Boolean)
-    const query = new URLSearchParams(tags.map(tag => ['tag', tag]))
-    $('list-title').textContent = tags.length ? `Tagged ${tags.join(' + ')}` : 'Latest'
+    const names = $('filter').value.split(',').map(t => t.trim()).filter(Boolean)
+    const query = new URLSearchParams(names.map(name => ['name', name]))
+    $('list-title').textContent = names.length ? `Linked to ${names.join(' + ')}` : 'Latest'
     renderObjects(await api(`/objects?${query}`))
 }
 
 async function showEntity(id) {
     const entity = await api(`/entities/${id}`)
-    $('list-title').textContent = `${entity.type}: ${entity.name}`
+    $('list-title').textContent = `${entity.name} (${entity.types.join(', ')})`
     renderObjects(entity.objects)
 }
 

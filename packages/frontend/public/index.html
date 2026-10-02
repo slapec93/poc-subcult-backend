@@ -32,7 +32,7 @@
             </label>
             <label>Title <input name="title" required></label>
             <label>Note (why it matters) <textarea name="note" required rows="3"></textarea></label>
-            <label>External URL <input name="externalUrl" type="url"></label>
+            <label>Link, e.g. YouTube (audio or link required) <input name="externalUrl" type="url"></label>
             <label>Tags, comma separated <input name="tags" placeholder="london, dub"></label>
             <label>Other entities, one per line as type:name
                 <textarea name="others" rows="3" placeholder="artist:King Tubby&#10;label:Studio One&#10;place:London"></textarea>
@@ -46,7 +46,7 @@
 
     <section>
         <h2>Browse</h2>
-        <label>Filter by tags (all must match), comma separated <input id="filter" placeholder="london, dub"></label>
+        <label>Filter by entity names, any type (all must match), comma separated <input id="filter" placeholder="london, dub"></label>
         <label>Entity autocomplete <input id="autocomplete"></label>
         <div id="suggestions"></div>
         <h3 id="list-title">Latest</h3>

@@ -22,15 +22,17 @@ export const addObjectSchema = z.object({
     createdAt: z.iso.datetime(),
     nonce: z.string().regex(/^[0-9a-f]{32}$/),
     signature: z.string().nullable(),
-    object: z.object({
-        kind: z.enum(objectKinds),
-        title: z.string().trim().min(1).max(300),
-        note: z.string().trim().min(1).max(10_000),
-        artworkRef: swarmRef.optional(),
-        audioRef: swarmRef.optional(),
-        externalUrl: z.url().optional(),
-        entities: z.array(entityRefSchema).max(50),
-    }),
+    object: z
+        .object({
+            kind: z.enum(objectKinds),
+            title: z.string().trim().min(1).max(300),
+            note: z.string().trim().min(1).max(10_000),
+            artworkRef: swarmRef.optional(),
+            audioRef: swarmRef.optional(),
+            externalUrl: z.url().optional(),
+            entities: z.array(entityRefSchema).max(50),
+        })
+        .refine(o => o.audioRef || o.externalUrl, { message: 'a music object needs audio or a link' }),
 })
 
 export const subcultEventSchema = z.discriminatedUnion('type', [addObjectSchema])

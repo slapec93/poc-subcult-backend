@@ -54,17 +54,17 @@ DATABASE_URL=postgres://subcult:<password>@postgres:5432/subcult
 BEE_URL=http://bee:1633
 ```
 
-Load `db/schema.sql` into the database once before the first start. The backend binds to `127.0.0.1` only; the frontend is deployed to Swarm separately.
+Load `db/schema.sql` into the database once before the first start, or run `scripts/recreate-db.sh`, which drops and recreates it. Later schema changes go into numbered files under `db/migrations/` (`001-<change>.sql`, …), applied in order on top of an existing database. The backend binds to `127.0.0.1` only; the frontend is deployed to Swarm separately.
 
 ## API
 
 | Method | Path | |
 | --- | --- | --- |
 | `POST` | `/objects` | multipart: `author`, `kind`, `title`, `note`, `externalUrl?`, `entities` (JSON `[{type, name}]`), `audio?`, `artwork?` |
-| `GET` | `/objects?tag=a&tag=b&entity=<id>` | objects matching all given tags and entities |
+| `GET` | `/objects?name=a&name=b&entity=<id>` | objects linked to all given entities, by name or id, whatever type they were linked as |
 | `GET` | `/objects/:id` | one object with its entities |
 | `GET` | `/entities?q=` | autocomplete |
-| `GET` | `/entities/:id` | entity with its objects |
+| `GET` | `/entities/:id` | entity, the types it is used as, and its objects |
 | `GET` | `/media/:ref` | streams a Swarm file, `Range` supported |
 | `GET` | `/status` | outbox, indexer cursor and confirmation counts |
 
