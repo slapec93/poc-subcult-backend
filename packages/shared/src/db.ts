@@ -3,6 +3,9 @@ import pg from 'pg'
 export type Db = pg.Pool
 export type DbClient = pg.PoolClient
 
+const TIMESTAMPTZ = 1184
+pg.types.setTypeParser(TIMESTAMPTZ, value => new Date(value).toISOString())
+
 export function createDb(connectionString: string): Db {
     return new pg.Pool({ connectionString })
 }

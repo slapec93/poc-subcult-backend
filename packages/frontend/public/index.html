@@ -26,7 +26,11 @@
 </head>
 <body>
     <h1>Subcult POC</h1>
-    <label>Acting as <input id="author" value="tester"></label>
+    <section>
+        <strong>Signing key</strong> <code id="address"></code>
+        <button id="new-key">New key</button>
+        <p class="muted">Every record is signed with this key, kept in this browser. Its address is the owner of what you add.</p>
+    </section>
 
     <section>
         <h2>Status <button id="refresh-status">Refresh</button></h2>
@@ -119,6 +123,6 @@
         </section>
     </div>
 
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
 </body>
 </html>

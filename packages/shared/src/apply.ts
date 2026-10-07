@@ -40,11 +40,11 @@ async function requireNode(client: DbClient, id: string) {
 // Idempotent: the API applies a record before it is on-chain, the indexer applies it again when it is.
 export async function applyRecord(client: DbClient, ref: string, record: SubcultRecord, position?: ChainPosition) {
     const inserted = await client.query(
-        `INSERT INTO records (id, type, author, created_at, body) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
-        [ref, record.type, record.author, record.createdAt, JSON.stringify(record)],
+        `INSERT INTO records (id, type, owner, created_at, body) VALUES ($1, $2, $3, $4, $5) ON CONFLICT (id) DO NOTHING`,
+        [ref, record.type, record.owner, record.createdAt, JSON.stringify(record)],
     )
     if (inserted.rowCount === 1) {
-        const context = { client, ref, author: record.author, createdAt: record.createdAt }
+        const context = { client, ref, owner: record.owner, createdAt: record.createdAt }
         switch (record.type) {
             case 'add_node':
                 await applyNode(context, record.payload)
@@ -71,12 +71,12 @@ export async function applyRecord(client: DbClient, ref: string, record: Subcult
 interface Context {
     client: DbClient
     ref: string
-    author: string
+    owner: string
     createdAt: string
 }
 
 async function applyNode(context: Context, node: PayloadOf<'add_node'>) {
-    const { client, ref, author, createdAt } = context
+    const { client, ref, owner, createdAt } = context
     const key = identityKey(node)
     const existing = key ? await client.query<{ id: string }>(`SELECT id FROM nodes WHERE identity_key = $1`, [key]) : null
     let nodeId = ref
@@ -86,7 +86,7 @@ async function applyNode(context: Context, node: PayloadOf<'add_node'>) {
     } else {
         await client.query(
             `INSERT INTO nodes (id, kind, title, role, locality, years, external_url, format, audio_ref, artwork_ref,
-                                identity_key, added_by, created_at)
+                                identity_key, owner, created_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
             [
                 ref,
@@ -100,44 +100,44 @@ async function applyNode(context: Context, node: PayloadOf<'add_node'>) {
                 node.audioRef ?? null,
                 node.artworkRef ?? null,
                 key,
-                author,
+                owner,
                 createdAt,
             ],
         )
     }
     if (node.note) await addNote(context, nodeId, node.note)
-    await addTags(context, nodeId, node.tags)
+    await addTags(context, nodeId, node.tags ?? [])
 }
 
-async function addNote({ client, ref, author, createdAt }: Context, nodeId: string, text: string) {
-    await client.query(`INSERT INTO notes (id, node_id, author, text, created_at) VALUES ($1, $2, $3, $4, $5)`, [
+async function addNote({ client, ref, owner, createdAt }: Context, nodeId: string, text: string) {
+    await client.query(`INSERT INTO notes (id, node_id, owner, text, created_at) VALUES ($1, $2, $3, $4, $5)`, [
         ref,
         nodeId,
-        author,
+        owner,
         text,
         createdAt,
     ])
 }
 
-async function addTags({ client, ref, author, createdAt }: Context, nodeId: string, tags: string[]) {
+async function addTags({ client, ref, owner, createdAt }: Context, nodeId: string, tags: string[]) {
     for (const tag of tags) {
         await client.query(
-            `INSERT INTO node_tags (node_id, tag, record_id, added_by, created_at) VALUES ($1, $2, $3, $4, $5)
+            `INSERT INTO node_tags (node_id, tag, record_id, owner, created_at) VALUES ($1, $2, $3, $4, $5)
              ON CONFLICT DO NOTHING`,
-            [nodeId, tag, ref, author, createdAt],
+            [nodeId, tag, ref, owner, createdAt],
         )
     }
 }
 
-async function applyConnection({ client, ref, author, createdAt }: Context, connection: PayloadOf<'add_connection'>) {
+async function applyConnection({ client, ref, owner, createdAt }: Context, connection: PayloadOf<'add_connection'>) {
     const from = await requireNode(client, connection.from)
     const to = await requireNode(client, connection.to)
     if (!connectionAllowed(connection.type, from.kind, to.kind)) {
         throw new RecordError(`${connection.type} cannot connect ${from.kind} to ${to.kind}`, false)
     }
     await client.query(
-        `INSERT INTO connections (id, from_id, type, to_id, author, note, source, created_at)
+        `INSERT INTO connections (id, from_id, type, to_id, owner, note, source, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (from_id, type, to_id) DO NOTHING`,
-        [ref, from.id, connection.type, to.id, author, connection.note, connection.source ?? null, createdAt],
+        [ref, from.id, connection.type, to.id, owner, connection.note, connection.source ?? null, createdAt],
     )
 }

@@ -1,30 +1,47 @@
 import { randomBytes } from 'node:crypto'
+import { recoverMessageAddress } from 'viem'
 import { z } from 'zod'
+import { canonicalJson } from './canonical.ts'
 import { normalizeTag } from './identity.ts'
 import { connectionTypeIds, nodeKinds, soundFormats } from './model.ts'
 
 export const APP_ID = 'subcult'
-export const RECORD_VERSION = 2
+export const RECORD_VERSION = 3
 
+// Signed content is validated, never transformed: any change would invalidate the signature.
 const ref = z.string().regex(/^[0-9a-f]{64}$/)
-const text = (max: number) => z.string().trim().min(1).max(max)
-export const tagSchema = z.string().transform(normalizeTag).pipe(z.string().min(1).max(50))
+export const addressSchema = z.string().regex(/^0x[0-9a-f]{40}$/, 'a lowercase 0x-prefixed Ethereum address')
+const webUrl = z.url({ protocol: /^https?$/ })
+const text = (max: number) =>
+    z
+        .string()
+        .min(1)
+        .max(max)
+        .refine(s => s.trim() === s, 'no leading or trailing whitespace')
+const tag = z
+    .string()
+    .min(1)
+    .max(50)
+    .refine(t => normalizeTag(t) === t, 'tags are lowercase and trimmed, without a leading #')
 
 export const nodePayloadSchema = z
-    .object({
+    .strictObject({
         kind: z.enum(nodeKinds),
         title: text(300),
         role: text(100).optional(),
         where: text(200).optional(),
         years: text(50).optional(),
-        externalUrl: z.url().optional(),
+        externalUrl: webUrl.optional(),
         format: z.enum(soundFormats).optional(),
         audioRef: ref.optional(),
         artworkRef: ref.optional(),
-        tags: z.array(tagSchema).max(30).default([]),
+        tags: z.array(tag).max(30).optional(),
         note: text(10_000).optional(),
     })
     .superRefine((node, ctx) => {
+        if (node.tags && new Set(node.tags).size !== node.tags.length) {
+            ctx.addIssue({ code: 'custom', path: ['tags'], message: 'tags must be unique' })
+        }
         if (node.kind !== 'sound') {
             if (node.format || node.audioRef) ctx.addIssue({ code: 'custom', message: 'format and audio are for sounds only' })
             return
@@ -35,50 +52,89 @@ export const nodePayloadSchema = z
         }
     })
 
-export const notePayloadSchema = z.object({ node: ref, text: text(10_000) })
+export const notePayloadSchema = z.strictObject({ node: ref, text: text(10_000) })
 
-export const connectionPayloadSchema = z.object({
+export const connectionPayloadSchema = z.strictObject({
     from: ref,
     type: z.enum(connectionTypeIds),
     to: ref,
     note: text(2_000),
-    source: z.url().optional(),
+    source: webUrl.optional(),
 })
 
-export const tagPayloadSchema = z.object({ node: ref, tag: tagSchema })
+export const tagPayloadSchema = z.strictObject({ node: ref, tag })
+
+const payloads = {
+    add_node: nodePayloadSchema,
+    add_note: notePayloadSchema,
+    add_connection: connectionPayloadSchema,
+    add_tag: tagPayloadSchema,
+} as const
+
+export const recordTypes = Object.keys(payloads) as [keyof typeof payloads, ...(keyof typeof payloads)[]]
 
 const envelope = {
     app: z.literal(APP_ID),
     v: z.literal(RECORD_VERSION),
-    author: text(100),
+    owner: addressSchema,
     createdAt: z.iso.datetime(),
     nonce: z.string().regex(/^[0-9a-f]{32}$/),
-    signature: z.string().nullable(),
 }
+const signature = z.string().regex(/^0x[0-9a-f]{130}$/, 'a 65-byte hex signature')
 
-export const recordSchema = z.discriminatedUnion('type', [
-    z.object({ ...envelope, type: z.literal('add_node'), payload: nodePayloadSchema }),
-    z.object({ ...envelope, type: z.literal('add_note'), payload: notePayloadSchema }),
-    z.object({ ...envelope, type: z.literal('add_connection'), payload: connectionPayloadSchema }),
-    z.object({ ...envelope, type: z.literal('add_tag'), payload: tagPayloadSchema }),
-])
+const variants = <S extends z.ZodRawShape>(extra: S) =>
+    z.discriminatedUnion('type', [
+        z.strictObject({ ...envelope, ...extra, type: z.literal('add_node'), payload: payloads.add_node }),
+        z.strictObject({ ...envelope, ...extra, type: z.literal('add_note'), payload: payloads.add_note }),
+        z.strictObject({ ...envelope, ...extra, type: z.literal('add_connection'), payload: payloads.add_connection }),
+        z.strictObject({ ...envelope, ...extra, type: z.literal('add_tag'), payload: payloads.add_tag }),
+    ])
 
+export const unsignedRecordSchema = variants({})
+export const recordSchema = variants({ signature })
+
+export type UnsignedRecord = z.infer<typeof unsignedRecordSchema>
 export type SubcultRecord = z.infer<typeof recordSchema>
 export type RecordType = SubcultRecord['type']
 export type NodePayload = z.infer<typeof nodePayloadSchema>
 export type PayloadOf<T extends RecordType> = Extract<SubcultRecord, { type: T }>['payload']
 
-export function buildRecord<T extends RecordType>(type: T, author: string, payload: z.input<typeof recordSchema>['payload']) {
-    return recordSchema.parse({
+// The message a client signs with EIP-191 personal_sign.
+export function signingMessage(record: UnsignedRecord | SubcultRecord): string {
+    const { signature: _, ...unsigned } = record as SubcultRecord
+    return canonicalJson(unsigned)
+}
+
+export async function recoverSigner(record: SubcultRecord): Promise<string | null> {
+    try {
+        const address = await recoverMessageAddress({
+            message: signingMessage(record),
+            signature: record.signature as `0x${string}`,
+        })
+        return address.toLowerCase()
+    } catch {
+        return null
+    }
+}
+
+export async function hasValidSignature(record: SubcultRecord): Promise<boolean> {
+    return (await recoverSigner(record)) === record.owner
+}
+
+export function createUnsignedRecord(type: RecordType, owner: string, payload: unknown): UnsignedRecord {
+    return unsignedRecordSchema.parse({
         app: APP_ID,
         v: RECORD_VERSION,
         type,
-        author,
+        owner,
         createdAt: new Date().toISOString(),
         nonce: randomBytes(16).toString('hex'),
-        signature: null,
         payload,
-    }) as Extract<SubcultRecord, { type: T }>
+    })
+}
+
+export function serializeRecord(record: SubcultRecord): string {
+    return canonicalJson(record)
 }
 
 export function parseRecord(bytes: Uint8Array): SubcultRecord | null {

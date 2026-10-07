@@ -11,7 +11,7 @@ Implements the node model from `DATA_MODELS.md`: nodes (sound, person, place) wi
 | `add_connection` | A typed connection between two nodes, with a required note and an optional source |
 | `add_tag` | A tag on a node |
 
-Records use format version 2 and share an envelope: `app`, `v`, `type`, `author`, `createdAt`, `nonce`, `signature`, `payload`. A node's id is the Swarm reference of its `add_node` record. A node with the same identity (a sound's source URL, a person's name, a place's name and location) is never created twice: the API adds to the existing node, and a duplicate `add_node` from another operator becomes an alias of the first.
+Records use format version 3 and share an envelope: `app`, `v`, `type`, `owner`, `createdAt`, `nonce`, `payload`, `signature`. The owner signs each record with EIP-191 `personal_sign` over the record without `signature`, serialized as JSON with sorted keys and no whitespace. The API and the indexer both recover the signer and reject records whose signature doesn't match `owner`; unknown fields and links other than `http(s)` are rejected. A node's id is the Swarm reference of its `add_node` record. A node with the same identity (a sound's source URL, a person's name, a place's name and location) is never created twice: the API adds to the existing node, and a duplicate `add_node` from another operator becomes an alias of the first.
 
 Connection types: Recorded by, Played by DJ, Played at, Recorded at, Played in set, Continues in, Resident at. Each type limits which node kinds it joins (`packages/shared/src/model.ts`).
 
@@ -71,17 +71,25 @@ Load `db/schema.sql` into the database once before the first start, or run `scri
 
 ## API
 
+Interactive docs (Swagger UI) at `/docs` on the backend, e.g. http://localhost:3000/docs; the OpenAPI spec at `/docs/json`.
+
+Writing a record:
+
+1. `POST /media` with a `file` (optional) → `ref`, used as `audioRef` or `artworkRef`.
+2. `POST /records/prepare` with `{type, owner, payload}` → the normalized `record` and the `message` to sign.
+3. Sign `message` with the owner's key, then `POST /records` with `{...record, signature}`.
+
 | Method | Path | |
 | --- | --- | --- |
-| `POST` | `/nodes` | multipart: `author`, `kind`, `title`, `role?`, `where?`, `years?`, `externalUrl?`, `format?`, `note?`, `tags?` (comma separated), `audio?`, `artwork?`. Returns `existing: true` when it added to an existing node |
+| `POST` | `/records/prepare` | normalize and validate a payload; returns the record and message to sign |
+| `POST` | `/records` | submit a signed record |
+| `GET` | `/records/:id` | a stored record with its chain status |
+| `POST` | `/media` | upload audio or an image to Swarm |
+| `GET` | `/media/:ref` | stream a Swarm file, `Range` supported |
 | `GET` | `/nodes?kind=&q=&tag=a&tag=b` | nodes, newest first; tags must all match |
 | `GET` | `/nodes/:id` | node with its tags, notes and connections, each connection labelled from this node's side |
-| `POST` | `/nodes/:id/notes` | JSON `{author, text}` |
-| `POST` | `/nodes/:id/tags` | JSON `{author, tags: []}` |
-| `POST` | `/connections` | JSON `{author, from, type, to \| toNode: {kind, title, where?}, note, source?}`; `toNode` finds or creates the target |
-| `GET` | `/connection-types` | types with their allowed node kinds |
 | `GET` | `/tags?q=` | tag autocomplete with counts |
-| `GET` | `/media/:ref` | streams a Swarm file, `Range` supported |
+| `GET` | `/connection-types` | types with their allowed node kinds |
 | `GET` | `/status` | outbox, indexer cursor and confirmation counts |
 
 ## Replay
@@ -94,4 +102,4 @@ Wipes the indexed tables and resets the cursor to `START_BLOCK`; the running ind
 
 ## Not in the POC
 
-Auth and user signatures, label/show/subcult nodes, placements, follows and saves, payments and private parts, edits, retractions and merges.
+Key management beyond a browser-generated key, label/show/subcult nodes, placements, follows and saves, payments and private parts, edits, retractions and merges.

@@ -1,17 +1,18 @@
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- Every applied record, as published on Swarm; ids elsewhere are the refs of the records that created them.
+-- owner is the address recovered from the record's signature.
 CREATE TABLE records (
   id           text PRIMARY KEY,
   type         text NOT NULL,
-  author       text NOT NULL,
+  owner        text NOT NULL,
   created_at   timestamptz NOT NULL,
   body         jsonb NOT NULL,
   block_number bigint,
   log_index    int,
   tx_hash      text
 );
-CREATE INDEX records_author ON records (author, created_at DESC);
+CREATE INDEX records_owner ON records (owner, created_at DESC);
 
 CREATE TABLE nodes (
   id           text PRIMARY KEY REFERENCES records,
@@ -25,7 +26,7 @@ CREATE TABLE nodes (
   audio_ref    text,
   artwork_ref  text,
   identity_key text UNIQUE,
-  added_by     text NOT NULL,
+  owner        text NOT NULL,
   created_at   timestamptz NOT NULL
 );
 CREATE INDEX nodes_kind_created ON nodes (kind, created_at DESC);
@@ -41,7 +42,7 @@ CREATE TABLE node_aliases (
 CREATE TABLE notes (
   id         text PRIMARY KEY REFERENCES records,
   node_id    text NOT NULL REFERENCES nodes,
-  author     text NOT NULL,
+  owner      text NOT NULL,
   text       text NOT NULL,
   created_at timestamptz NOT NULL
 );
@@ -52,7 +53,7 @@ CREATE TABLE connections (
   from_id    text NOT NULL REFERENCES nodes,
   type       text NOT NULL,
   to_id      text NOT NULL REFERENCES nodes,
-  author     text NOT NULL,
+  owner      text NOT NULL,
   note       text NOT NULL,
   source     text,
   created_at timestamptz NOT NULL,
@@ -64,7 +65,7 @@ CREATE TABLE node_tags (
   node_id    text NOT NULL REFERENCES nodes,
   tag        text NOT NULL,
   record_id  text NOT NULL REFERENCES records,
-  added_by   text NOT NULL,
+  owner      text NOT NULL,
   created_at timestamptz NOT NULL,
   PRIMARY KEY (node_id, tag)
 );

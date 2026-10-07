@@ -1,5 +1,27 @@
+import { generatePrivateKey, privateKeyToAccount } from 'https://esm.sh/viem@2/accounts'
+
 const $ = id => document.getElementById(id)
-const author = () => $('author').value.trim()
+const KEY_STORAGE = 'subcult-signing-key'
+
+let account = null
+
+function loadAccount(fresh = false) {
+    let key = null
+    try {
+        key = fresh ? null : localStorage.getItem(KEY_STORAGE)
+    } catch {}
+    if (!key) {
+        key = generatePrivateKey()
+        try {
+            localStorage.setItem(KEY_STORAGE, key)
+        } catch {}
+    }
+    account = privateKeyToAccount(key)
+    $('address').textContent = account.address
+}
+
+const owner = () => account.address.toLowerCase()
+const short = address => `${address.slice(0, 6)}…${address.slice(-4)}`
 
 async function api(path, options = {}) {
     const res = await fetch(`/api${path}`, options)
@@ -8,8 +30,21 @@ async function api(path, options = {}) {
     return body
 }
 
-const postJson = (path, body) =>
-    api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ author: author(), ...body }) })
+const postJson = (path, body) => api(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+
+// prepare → sign → submit: the server never signs on the user's behalf.
+async function submit(type, payload) {
+    const { record, message } = await postJson('/records/prepare', { type, owner: owner(), payload })
+    const signature = await account.signMessage({ message })
+    return postJson('/records', { ...record, signature })
+}
+
+async function uploadMedia(file) {
+    if (!file || file.size === 0) return undefined
+    const form = new FormData()
+    form.set('file', file)
+    return (await api('/media', { method: 'POST', body: form })).ref
+}
 
 const present = children => children.filter(c => c !== null && c !== undefined && c !== false)
 
@@ -20,7 +55,6 @@ function el(tag, props = {}, ...children) {
 }
 
 const fill = (id, ...children) => $(id).replaceChildren(...present(children))
-
 const confirmation = item => (item.confirmed ? 'on-chain' : 'not yet on-chain')
 const tagChip = tag => el('span', { className: 'chip', onclick: () => filterByTag(tag) }, `#${tag}`)
 
@@ -29,8 +63,9 @@ let currentNode = null
 let chosenTarget = null
 
 function renderCards(nodes) {
-    if (nodes.length === 0) return $('nodes').replaceChildren(el('p', { className: 'muted' }, 'Nothing found.'))
-    $('nodes').replaceChildren(
+    if (nodes.length === 0) return fill('nodes', el('p', { className: 'muted' }, 'Nothing found.'))
+    fill(
+        'nodes',
         ...nodes.map(n =>
             el(
                 'div',
@@ -40,7 +75,7 @@ function renderCards(nodes) {
                 n.where ? el('span', { className: 'muted' }, ` — ${n.where}`) : null,
                 n.firstNote ? el('div', {}, n.firstNote) : null,
                 el('div', {}, ...n.tags.map(tagChip)),
-                el('div', { className: 'muted' }, `${n.noteCount} notes · ${n.connectionCount} connections · added by @${n.addedBy}`),
+                el('div', { className: 'muted' }, `${n.noteCount} notes · ${n.connectionCount} connections · added by ${short(n.owner)}`),
             ),
         ),
     )
@@ -68,21 +103,23 @@ async function showNode(id) {
     $('detail-title').textContent = node.title
     fill(
         'detail-meta',
-        [node.where, `added by @${node.addedBy}`, confirmation(node)].filter(Boolean).join(' · '),
-        node.externalUrl ? el('div', {}, el('a', { href: node.externalUrl, target: '_blank' }, node.externalUrl)) : null,
+        [node.where, `added by ${short(node.owner)}`, confirmation(node)].filter(Boolean).join(' · '),
+        node.externalUrl ? el('div', {}, el('a', { href: node.externalUrl, target: '_blank', rel: 'noopener' }, node.externalUrl)) : null,
     )
     fill(
         'detail-media',
         node.artworkRef ? el('img', { src: `/api/media/${node.artworkRef}`, height: 120 }) : null,
         node.audioRef ? el('audio', { src: `/api/media/${node.audioRef}`, controls: true, preload: 'none' }) : null,
     )
-    $('detail-tags').replaceChildren(...node.tags.map(tagChip))
-    $('detail-notes').replaceChildren(
+    fill('detail-tags', ...node.tags.map(tagChip))
+    fill(
+        'detail-notes',
         ...node.notes.map(n =>
-            el('div', { className: 'note' }, n.text, el('div', { className: 'muted' }, `@${n.author} · ${new Date(n.createdAt).toLocaleString()} · ${confirmation(n)}`)),
+            el('div', { className: 'note' }, n.text, el('div', { className: 'muted' }, `${short(n.owner)} · ${new Date(n.createdAt).toLocaleString()} · ${confirmation(n)}`)),
         ),
     )
-    $('detail-connections').replaceChildren(
+    fill(
+        'detail-connections',
         ...node.connections.map(c =>
             el(
                 'div',
@@ -90,8 +127,8 @@ async function showNode(id) {
                 el('span', { className: 'kind' }, `${c.label} `),
                 el('a', { href: '#', onclick: e => (e.preventDefault(), showNode(c.nodeId)) }, c.nodeTitle),
                 el('span', { className: 'muted' }, ` (${c.nodeKind})`),
-                el('div', {}, `“${c.note}” — @${c.author}`),
-                c.source ? el('a', { href: c.source, target: '_blank', className: 'muted' }, c.source) : null,
+                el('div', {}, `“${c.note}” — ${short(c.owner)}`),
+                c.source ? el('a', { href: c.source, target: '_blank', rel: 'noopener', className: 'muted' }, c.source) : null,
             ),
         ),
     )
@@ -106,7 +143,7 @@ const selectedType = () => connectionTypes.find(t => t.id === $('add-connection'
 function resetTarget() {
     chosenTarget = null
     $('add-connection').target.value = ''
-    $('target-suggestions').replaceChildren()
+    fill('target-suggestions')
     $('target-choice').textContent = ''
     updateNewPlaceField()
 }
@@ -125,20 +162,25 @@ $('add-connection').target.addEventListener('input', event => {
     targetTimer = setTimeout(async () => {
         const q = event.target.value.trim()
         const type = selectedType()
-        if (!q || !type) return $('target-suggestions').replaceChildren()
+        if (!q || !type) return fill('target-suggestions')
         const results = (await Promise.all(type.to.map(kind => api(`/nodes?kind=${kind}&q=${encodeURIComponent(q)}&limit=5`)))).flat()
-        $('target-suggestions').replaceChildren(
+        fill(
+            'target-suggestions',
             ...results.map(n =>
-                el('span', {
-                    className: 'chip',
-                    onclick: () => {
-                        chosenTarget = n
-                        $('add-connection').target.value = n.title
-                        $('target-choice').textContent = `connecting to existing ${n.kind}`
-                        $('target-suggestions').replaceChildren()
-                        updateNewPlaceField()
+                el(
+                    'span',
+                    {
+                        className: 'chip',
+                        onclick: () => {
+                            chosenTarget = n
+                            $('add-connection').target.value = n.title
+                            $('target-choice').textContent = `connecting to existing ${n.kind}`
+                            fill('target-suggestions')
+                            updateNewPlaceField()
+                        },
                     },
-                }, `${n.title} (${n.kind}${n.where ? `, ${n.where}` : ''})`),
+                    `${n.title} (${n.kind}${n.where ? `, ${n.where}` : ''})`,
+                ),
             ),
         )
     }, 250)
@@ -161,18 +203,11 @@ $('add-connection').addEventListener('submit', event => {
     event.preventDefault()
     const form = event.target
     const type = selectedType()
-    const title = form.target.value.trim()
-    const target = chosenTarget
-        ? { to: chosenTarget.id }
-        : { toNode: { kind: type.to[0], title, where: form.targetWhere.value.trim() || undefined } }
     run(async () => {
-        await postJson('/connections', {
-            from: currentNode.id,
-            type: type.id,
-            ...target,
-            note: form.note.value,
-            source: form.source.value.trim() || undefined,
-        })
+        const to = chosenTarget
+            ? chosenTarget.id
+            : (await submit('add_node', { kind: type.to[0], title: form.target.value, where: form.targetWhere.value })).nodeId
+        await submit('add_connection', { from: currentNode.id, type: type.id, to, note: form.note.value, source: form.source.value })
         form.reset()
     })
 })
@@ -180,16 +215,18 @@ $('add-connection').addEventListener('submit', event => {
 $('add-note').addEventListener('submit', event => {
     event.preventDefault()
     run(async () => {
-        await postJson(`/nodes/${currentNode.id}/notes`, { text: event.target.text.value })
+        await submit('add_note', { node: currentNode.id, text: event.target.text.value })
         event.target.reset()
     })
 })
 
 $('add-tags').addEventListener('submit', event => {
     event.preventDefault()
-    const tags = event.target.tags.value.split(',').map(t => t.trim()).filter(Boolean)
+    const tags = event.target.tags.value.split(',').map(t => t.trim().toLowerCase().replace(/^#/, '')).filter(Boolean)
     run(async () => {
-        await postJson(`/nodes/${currentNode.id}/tags`, { tags })
+        for (const tag of new Set(tags)) {
+            if (!currentNode.tags.includes(tag)) await submit('add_tag', { node: currentNode.id, tag })
+        }
         event.target.reset()
     })
 })
@@ -202,23 +239,27 @@ $('create').kind.addEventListener('change', updateKindFields)
 
 $('create').addEventListener('submit', async event => {
     event.preventDefault()
-    const form = new FormData(event.target)
-    form.set('author', author())
-    for (const [key, value] of [...form.entries()]) {
-        if (value === '' || (value instanceof File && value.size === 0)) form.delete(key)
-    }
+    const form = event.target
     $('create-result').hidden = false
-    $('create-result').textContent = 'Saving…'
+    $('create-result').textContent = 'Uploading and signing…'
     try {
-        const result = await api('/nodes', { method: 'POST', body: form })
+        const isSound = form.kind.value === 'sound'
+        const [audioRef, artworkRef] = await Promise.all([
+            isSound ? uploadMedia(form.audio.files[0]) : undefined,
+            uploadMedia(form.artwork.files[0]),
+        ])
+        const payload = { audioRef, artworkRef }
+        for (const field of ['kind', 'title', 'role', 'where', 'years', 'externalUrl', 'note', 'tags']) payload[field] = form[field].value
+        if (isSound) payload.format = form.format.value
+        const result = await submit('add_node', payload)
         $('create-result').textContent = result.existing
             ? `Already existed: your note and tags were added to it.\n${JSON.stringify(result, null, 2)}`
             : JSON.stringify(result, null, 2)
-        event.target.reset()
+        form.reset()
         updateKindFields()
         loadNodes()
         refreshStatus()
-        showNode(result.id)
+        showNode(result.nodeId)
     } catch (err) {
         $('create-result').textContent = err.message
     }
@@ -237,16 +278,9 @@ for (const id of ['filter-q', 'filter-tags']) {
 }
 $('filter-kind').addEventListener('change', loadNodes)
 $('refresh-status').addEventListener('click', refreshStatus)
+$('new-key').addEventListener('click', () => loadAccount(true))
 
-try {
-    $('author').value = localStorage.getItem('author') || $('author').value
-} catch {}
-$('author').addEventListener('change', () => {
-    try {
-        localStorage.setItem('author', author())
-    } catch {}
-})
-
+loadAccount()
 updateKindFields()
 api('/connection-types').then(types => (connectionTypes = types))
 loadNodes()

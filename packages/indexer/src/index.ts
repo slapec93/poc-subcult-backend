@@ -2,6 +2,7 @@ import {
     applyRecord,
     createChainClient,
     createDb,
+    hasValidSignature,
     notifyAbi,
     parseRecord,
     RecordError,
@@ -83,7 +84,9 @@ async function fetchRecord(event: PendingEvent): Promise<Fetched> {
         }
     }
     const record = parseRecord(await swarm.downloadBytes(event.swarm_ref))
-    return record ? { record } : { ignored: 'not a subcult record' }
+    if (!record) return { ignored: 'not a subcult record' }
+    if (!(await hasValidSignature(record))) return { ignored: 'signature does not match owner' }
+    return { record }
 }
 
 async function applyFetched(event: PendingEvent, record: SubcultRecord) {
