@@ -1,9 +1,10 @@
 import { createPublicClient, defineChain, http, parseAbi, type Chain } from 'viem'
-import { foundry, gnosis } from 'viem/chains'
+import { foundry, gnosis, mainnet } from 'viem/chains'
 
 export const notifyAbi = parseAbi(['event Notification(bytes32 indexed data)', 'function notify(bytes32 data)'])
 
 export function resolveChain(chainId: number, rpcUrl: string): Chain {
+    if (chainId === mainnet.id) return mainnet
     if (chainId === gnosis.id) return gnosis
     if (chainId === foundry.id) return foundry
     return defineChain({

@@ -71,6 +71,43 @@ CREATE TABLE node_tags (
 );
 CREATE INDEX node_tags_tag ON node_tags (tag);
 
+CREATE TABLE private_parts (
+  id                  text PRIMARY KEY REFERENCES records,
+  node_id             text NOT NULL REFERENCES nodes,
+  owner               text NOT NULL,
+  encrypted_ref       text NOT NULL,
+  iv                  text NOT NULL,
+  content_type        text NOT NULL,
+  description         text,
+  price_amount        text NOT NULL,
+  price_currency      text NOT NULL,
+  accepted_currencies text[],
+  key_holder          text NOT NULL,
+  payment_chain_id    int NOT NULL,
+  payment_chain_block bigint NOT NULL,
+  created_at          timestamptz NOT NULL
+);
+CREATE INDEX private_parts_node ON private_parts (node_id);
+
+-- Operator-only state: never on Swarm or the chain, and no foreign keys into replayable tables,
+-- so a replay that truncates them leaves keys and purchases intact.
+CREATE TABLE content_keys (
+  private_part_id text PRIMARY KEY,
+  key_ciphertext  text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE purchases (
+  tx_hash         text PRIMARY KEY,
+  private_part_id text NOT NULL,
+  buyer           text NOT NULL,
+  currency        text NOT NULL,
+  amount          numeric(78, 0) NOT NULL,
+  block_number    bigint NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX purchases_part_buyer ON purchases (private_part_id, buyer);
+
 CREATE TABLE chain_outbox (
   swarm_ref       text PRIMARY KEY,
   status          text NOT NULL DEFAULT 'pending',

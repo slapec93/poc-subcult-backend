@@ -14,8 +14,10 @@ import {
     type Db,
     type Swarm,
 } from '@subcult/shared'
-import { hasZodFastifySchemaValidationErrors, type FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
+import type { FastifyPluginAsyncZod } from 'fastify-type-provider-zod'
 import { z } from 'zod'
+import { config } from './config.ts'
+import { paymentChain } from './payment-chain.ts'
 import { HttpError, submitRecord } from './publish.ts'
 
 const id = z.string().regex(/^[0-9a-f]{64}$/).describe('Swarm reference of a record (64 hex characters)')
@@ -47,6 +49,20 @@ const nodeSummarySchema = nodeSchema.extend({
 })
 
 const nodeDetailSchema = nodeSchema.extend({
+    privateParts: z.array(
+        z.object({
+            id,
+            owner: z.string().describe('the seller, who is paid directly'),
+            description: z.string().nullable(),
+            contentType: z.string(),
+            price: z.object({ amount: z.string(), currency: z.string() }),
+            acceptedCurrencies: z.array(z.string()).nullable().describe('null: every payment currency the key holder supports'),
+            keyHolder: z.string(),
+            createdAt: z.string(),
+            sellable: z.boolean().describe('whether this operator holds the key'),
+            purchased: z.boolean().describe('whether `buyer` already bought it'),
+        }),
+    ),
     notes: z.array(z.object({ id, owner: z.string(), text: z.string(), createdAt: z.string(), confirmed: z.boolean() })),
     connections: z.array(
         z.object({
@@ -78,16 +94,6 @@ const summaryColumns = `${nodeColumns},
 const asArray = (value: string | string[] | undefined) => (value === undefined ? [] : [value].flat().filter(Boolean))
 
 export const routes: FastifyPluginAsyncZod<{ db: Db; swarm: Swarm }> = async (app, { db, swarm }) => {
-    app.setErrorHandler((err, _request, reply) => {
-        if (hasZodFastifySchemaValidationErrors(err)) {
-            return reply.code(400).send({ error: err.validation.map(v => `${v.instancePath || 'body'}: ${v.message}`).join('; ') })
-        }
-        if (err instanceof z.ZodError) return reply.code(400).send({ error: z.prettifyError(err) })
-        if (err instanceof HttpError) return reply.code(err.status).send({ error: err.message })
-        reply.log.error(err)
-        return reply.code(500).send({ error: String(err) })
-    })
-
     app.get('/health', { schema: { tags: ['meta'], response: { 200: z.object({ ok: z.boolean() }) } } }, async () => ({ ok: true }))
 
     app.get(
@@ -115,7 +121,9 @@ export const routes: FastifyPluginAsyncZod<{ db: Db; swarm: Swarm }> = async (ap
                 description:
                     'Normalizes the payload (trims text, lowercases and dedupes tags), fills in `createdAt` and `nonce`, and validates it. ' +
                     'Payloads: `add_node` {kind, title, role?, where?, years?, externalUrl?, format?, audioRef?, artworkRef?, tags?, note?}; ' +
-                    '`add_note` {node, text}; `add_connection` {from, type, to, note, source?}; `add_tag` {node, tag}.',
+                    '`add_note` {node, text}; `add_connection` {from, type, to, note, source?}; `add_tag` {node, tag}; ' +
+                    '`add_private_part` {node, encryptedRef, iv, contentType, description?, price: {amount, currency}, acceptedCurrencies?, keyHolder?, paymentChainBlock?} ' +
+                    '(keyHolder defaults to this operator, paymentChainBlock to the current payment chain head).',
                 body: z.object({
                     type: z.enum(recordTypes),
                     owner: address,
@@ -132,7 +140,15 @@ export const routes: FastifyPluginAsyncZod<{ db: Db; swarm: Swarm }> = async (ap
         },
         async request => {
             const { type, owner, payload } = request.body
-            const record = createUnsignedRecord(type, owner.toLowerCase(), normalizeDraft(type, payload))
+            const draft =
+                type === 'add_private_part'
+                    ? {
+                          keyHolder: config.publicUrl,
+                          paymentChainBlock: { chainId: config.paymentChain.chainId, number: (await paymentChain.getBlockNumber()).toString() },
+                          ...payload,
+                      }
+                    : payload
+            const record = createUnsignedRecord(type, owner.toLowerCase(), normalizeDraft(type, draft))
             return { record, message: signingMessage(record) }
         },
     )
@@ -197,14 +213,18 @@ export const routes: FastifyPluginAsyncZod<{ db: Db; swarm: Swarm }> = async (ap
             schema: {
                 tags: ['media'],
                 summary: 'Upload a file to Swarm',
-                description: 'multipart/form-data with one `file` field (audio/* or image/*). Use the returned `ref` as `audioRef` or `artworkRef`.',
+                description:
+                    'multipart/form-data with one `file` field: audio/* or image/* for public media (`audioRef`, `artworkRef`), ' +
+                    'or application/octet-stream for encrypted private parts (`encryptedRef`).',
                 response: { 201: z.object({ ref: id, contentType: z.string(), size: z.number() }), 400: errorSchema, 415: errorSchema },
             },
         },
         async (request, reply) => {
             const file = await request.file()
             if (!file) throw new HttpError(400, 'missing file')
-            if (!/^(audio|image)\//.test(file.mimetype)) throw new HttpError(415, 'only audio/* and image/* files')
+            if (!/^(audio\/|image\/|application\/octet-stream$)/.test(file.mimetype)) {
+                throw new HttpError(415, 'only audio/*, image/* or application/octet-stream (encrypted) files')
+            }
             const data = await file.toBuffer()
             const ref = await swarm.uploadFile(data, file.filename, file.mimetype)
             return reply.code(201).send({ ref, contentType: file.mimetype, size: data.length })
@@ -281,13 +301,15 @@ export const routes: FastifyPluginAsyncZod<{ db: Db; swarm: Swarm }> = async (ap
                 summary: 'A node with its tags, notes and connections',
                 description: 'Accepts the id of any record that created or was merged into the node.',
                 params: z.object({ id }),
+                querystring: z.object({ buyer: z.string().regex(/^0x[0-9a-fA-F]{40}$/).optional().describe('marks the parts this address bought') }),
                 response: { 200: nodeDetailSchema, 404: errorSchema },
             },
         },
         async (request, reply) => {
             const node = await resolveNode(db, request.params.id)
             if (!node) return reply.code(404).send({ error: 'node not found' })
-            const [detail, notes, connections] = await Promise.all([
+            const buyer = request.query.buyer?.toLowerCase() ?? null
+            const [detail, notes, connections, privateParts] = await Promise.all([
                 db.query(`SELECT ${nodeColumns} FROM nodes n JOIN records r ON r.id = n.id WHERE n.id = $1`, [node.id]),
                 db.query(
                     `SELECT nt.id, nt.owner, nt.text, nt.created_at AS "createdAt", r.block_number IS NOT NULL AS confirmed
@@ -303,9 +325,19 @@ export const routes: FastifyPluginAsyncZod<{ db: Db; swarm: Swarm }> = async (ap
                      WHERE c.from_id = $1 OR c.to_id = $1 ORDER BY c.created_at DESC`,
                     [node.id],
                 ),
+                db.query(
+                    `SELECT p.id, p.owner, p.description, p.content_type AS "contentType",
+                            json_build_object('amount', p.price_amount, 'currency', p.price_currency) AS price,
+                            p.accepted_currencies AS "acceptedCurrencies", p.key_holder AS "keyHolder", p.created_at AS "createdAt",
+                            EXISTS (SELECT 1 FROM content_keys k WHERE k.private_part_id = p.id) AS sellable,
+                            EXISTS (SELECT 1 FROM purchases b WHERE b.private_part_id = p.id AND b.buyer = $2) AS purchased
+                     FROM private_parts p WHERE p.node_id = $1 ORDER BY p.created_at`,
+                    [node.id, buyer],
+                ),
             ])
             return {
                 ...detail.rows[0],
+                privateParts: privateParts.rows,
                 notes: notes.rows,
                 connections: connections.rows.map(c => ({
                     ...c,

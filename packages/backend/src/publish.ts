@@ -1,3 +1,5 @@
+import { config } from './config.ts'
+import { paymentChain } from './payment-chain.ts'
 import {
     applyRecord,
     connectionAllowed,
@@ -22,6 +24,9 @@ export class HttpError extends Error {
 }
 
 const MAX_CLOCK_SKEW_MS = 10 * 60_000
+// How far a private part's paymentChainBlock may be from the head: covers the prepare → sign → submit round trip.
+const BLOCKS_BEHIND = 50n
+const BLOCKS_AHEAD = 5n
 
 async function requireNode(db: Db, id: string) {
     const node = await resolveNode(db, id)
@@ -60,6 +65,22 @@ async function check(db: Db, record: SubcultRecord) {
                 target.id,
             ])
             if (rowCount) throw new HttpError(409, 'this connection already exists; add a note to the node instead')
+            return
+        }
+        case 'add_private_part': {
+            await requireNode(db, record.payload.node)
+            const { price, acceptedCurrencies } = record.payload
+            const priced = config.currencies.filter(c => c.price).map(c => c.id)
+            const payable = config.currencies.filter(c => c.payable).map(c => c.id)
+            if (!priced.includes(price.currency)) throw new HttpError(400, `prices must be in ${priced.join(' or ')}`)
+            const unsupported = acceptedCurrencies?.filter(c => !payable.includes(c)) ?? []
+            if (unsupported.length) throw new HttpError(400, `not accepted for payment here: ${unsupported.join(', ')}`)
+            const { chainId, number } = record.payload.paymentChainBlock
+            if (chainId !== config.paymentChain.chainId) throw new HttpError(400, `payments here are on chain ${config.paymentChain.chainId}`)
+            const head = await paymentChain.getBlockNumber()
+            if (BigInt(number) < head - BLOCKS_BEHIND || BigInt(number) > head + BLOCKS_AHEAD) {
+                throw new HttpError(400, `paymentChainBlock ${number} is too far from the current block ${head}; prepare the record again`)
+            }
             return
         }
         case 'add_node':

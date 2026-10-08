@@ -9,6 +9,8 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@ethersphere/bee-js": "^13.1.0",
+    "@ethersphere/core-sdk": "^0.2.1",
     "pg": "^8.16.0",
     "viem": "^2.37.0",
     "zod": "^4.1.0"

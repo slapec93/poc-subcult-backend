@@ -1,23 +1,71 @@
+import { createPublicClient, createWalletClient, defineChain, hexToBytes, http, parseAbi, toHex } from 'https://esm.sh/viem@2'
 import { generatePrivateKey, privateKeyToAccount } from 'https://esm.sh/viem@2/accounts'
+import { decrypt as eciesDecrypt } from 'https://esm.sh/eciesjs@0.5.0'
 
 const $ = id => document.getElementById(id)
 const KEY_STORAGE = 'subcult-signing-key'
 
 let account = null
+let privateKey = null
+let chainConfig = null
+let currencies = []
+const erc20Abi = parseAbi(['function transfer(address to, uint256 amount) returns (bool)', 'function balanceOf(address owner) view returns (uint256)'])
+
+function useKey(key) {
+    privateKey = key
+    account = privateKeyToAccount(key)
+    try {
+        localStorage.setItem(KEY_STORAGE, key)
+    } catch {}
+    $('address').textContent = account.address
+    showBalance()
+}
 
 function loadAccount(fresh = false) {
     let key = null
     try {
         key = fresh ? null : localStorage.getItem(KEY_STORAGE)
     } catch {}
-    if (!key) {
-        key = generatePrivateKey()
-        try {
-            localStorage.setItem(KEY_STORAGE, key)
-        } catch {}
+    useKey(key ?? generatePrivateKey())
+}
+
+// Must match the backend: sorted keys, no whitespace, undefined dropped.
+function canonicalJson(value) {
+    if (value === null || typeof value !== 'object') return JSON.stringify(value)
+    if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+    const entries = Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(',')}}`
+}
+
+const inMinutes = minutes => new Date(Date.now() + minutes * 60_000).toISOString()
+const signedMessage = async message => ({ message, signature: await account.signMessage({ message: canonicalJson(message) }) })
+
+function chainClients() {
+    if (!chainConfig) throw new Error('payment settings are still loading')
+    const chain = defineChain({
+        id: chainConfig.paymentChainId,
+        name: `chain ${chainConfig.paymentChainId}`,
+        nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+        rpcUrls: { default: { http: [chainConfig.paymentRpcUrl] } },
+    })
+    return { pub: createPublicClient({ chain, transport: http() }), wallet: createWalletClient({ account, chain, transport: http() }) }
+}
+
+// ETH pays the gas; the tokens pay the price.
+async function showBalance() {
+    const address = account.address
+    try {
+        const { pub } = chainClients()
+        const tokens = currencies.filter(c => c.payable && c.token)
+        const [wei, ...amounts] = await Promise.all([
+            pub.getBalance({ address }),
+            ...tokens.map(c => pub.readContract({ address: c.token, abi: erc20Abi, functionName: 'balanceOf', args: [address] })),
+        ])
+        const parts = [`${Number(wei) / 1e18} ETH`, ...tokens.map((c, i) => `${Number(amounts[i]) / 10 ** c.decimals} ${c.symbol}`)]
+        if (address === account.address) $('balance').textContent = `balance: ${parts.join(' · ')}`
+    } catch {
+        if (address === account.address) $('balance').textContent = ''
     }
-    account = privateKeyToAccount(key)
-    $('address').textContent = account.address
 }
 
 const owner = () => account.address.toLowerCase()
@@ -95,7 +143,7 @@ function filterByTag(tag) {
 }
 
 async function showNode(id) {
-    const node = await api(`/nodes/${id}`)
+    const node = await api(`/nodes/${id}?buyer=${owner()}`)
     currentNode = node
     $('detail').hidden = false
     $('detail-error').textContent = ''
@@ -112,6 +160,7 @@ async function showNode(id) {
         node.audioRef ? el('audio', { src: `/api/media/${node.audioRef}`, controls: true, preload: 'none' }) : null,
     )
     fill('detail-tags', ...node.tags.map(tagChip))
+    renderPrivateParts(node)
     fill(
         'detail-notes',
         ...node.notes.map(n =>
@@ -285,3 +334,131 @@ updateKindFields()
 api('/connection-types').then(types => (connectionTypes = types))
 loadNodes()
 refreshStatus()
+
+const symbolOf = id => currencies.find(c => c.id === id)?.symbol ?? id
+const priceLabel = price => `${price.amount} ${symbolOf(price.currency)}`
+
+function renderPrivateParts(node) {
+    fill(
+        'detail-private',
+        ...node.privateParts.map(part => {
+            const output = el('div')
+            const status = el('div', { className: 'muted' })
+            const fail = err => (status.textContent = err.message)
+            let action
+            if (part.owner === owner()) {
+                action = el('span', { className: 'muted' }, 'You sell this.')
+            } else if (part.purchased) {
+                action = el('button', { onclick: () => openPart(part, {}, output, status).catch(fail) }, 'Open')
+            } else if (!part.sellable) {
+                action = el('span', { className: 'muted' }, `Sold through ${part.keyHolder}, not this operator.`)
+            } else {
+                const payable = currencies.filter(c => c.payable && (!part.acceptedCurrencies || part.acceptedCurrencies.includes(c.id)))
+                const select = el('select', {}, ...payable.map(c => el('option', { value: c.id }, c.symbol)))
+                action = el('span', {}, select)
+                const buy = () =>
+                    buyPart(part, select.value, output, status)
+                        .then(() => action.replaceChildren('Purchased'))
+                        .catch(fail)
+                action.append(el('button', { onclick: buy }, 'Buy'))
+            }
+            return el(
+                'div',
+                { className: 'note' },
+                el('strong', {}, part.description ?? part.contentType),
+                el('span', { className: 'muted' }, ` · ${priceLabel(part.price)} · sold by ${short(part.owner)} · ${part.contentType}`),
+                el('div', {}, action),
+                status,
+                output,
+            )
+        }),
+    )
+}
+
+async function buyPart(part, currency, output, status) {
+    const payment = await api(`/private-parts/${part.id}/payment`)
+    const option = payment.options.find(o => o.currency === currency)
+    status.textContent = `Paying ${option.displayAmount} ${option.symbol} to ${short(payment.payTo)}…`
+    const { pub, wallet } = chainClients()
+    const hash = option.token
+        ? await wallet.writeContract({ address: option.token, abi: erc20Abi, functionName: 'transfer', args: [payment.payTo, BigInt(option.amount)] })
+        : await wallet.sendTransaction({ to: payment.payTo, value: BigInt(option.amount) })
+    status.textContent = `Waiting for ${chainConfig.paymentConfirmations} confirmation(s) of ${hash.slice(0, 10)}…`
+    await pub.waitForTransactionReceipt({ hash, confirmations: chainConfig.paymentConfirmations })
+    await openPart(part, { txHash: hash }, output, status)
+    showBalance()
+}
+
+async function openPart(part, payment, output, status) {
+    status.textContent = 'Unlocking…'
+    const unlocked = await postJson(
+        '/unlock',
+        await signedMessage({ app: 'subcult', type: 'unlock', privatePart: part.id, buyer: owner(), expiresAt: inMinutes(5), ...payment }),
+    )
+    const rawKey = eciesDecrypt(privateKey.slice(2), hexToBytes(unlocked.encryptedKey))
+    const key = await crypto.subtle.importKey('raw', rawKey, 'AES-GCM', false, ['decrypt'])
+    const ciphertext = await (await fetch(`/api/media/${unlocked.encryptedRef}`)).arrayBuffer()
+    const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: hexToBytes(`0x${unlocked.iv}`) }, key, ciphertext)
+    const url = URL.createObjectURL(new Blob([plain], { type: unlocked.contentType }))
+    const type = unlocked.contentType
+    output.replaceChildren(
+        type.startsWith('audio/')
+            ? el('audio', { src: url, controls: true })
+            : type.startsWith('image/')
+              ? el('img', { src: url, height: 160 })
+              : type.startsWith('text/')
+                ? el('pre', {}, new TextDecoder().decode(plain))
+                : el('a', { href: url, download: 'private-part' }, 'Download'),
+    )
+    status.textContent = `Unlocked · paid in ${unlocked.txHash.slice(0, 10)}…`
+}
+
+$('add-private').addEventListener('submit', event => {
+    event.preventDefault()
+    const form = event.target
+    run(async () => {
+        const file = form.file.files[0]
+        const key = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt'])
+        const iv = crypto.getRandomValues(new Uint8Array(12))
+        const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, await file.arrayBuffer())
+        const upload = new FormData()
+        upload.set('file', new Blob([ciphertext], { type: 'application/octet-stream' }), 'private.bin')
+        const encryptedRef = (await api('/media', { method: 'POST', body: upload })).ref
+        const accepted = [...form.querySelectorAll('input[name=accepted]:checked')].map(input => input.value)
+        const part = await submit('add_private_part', {
+            node: currentNode.id,
+            encryptedRef,
+            iv: toHex(iv).slice(2),
+            contentType: (file.type || 'application/octet-stream').toLowerCase(),
+            description: form.description.value,
+            price: { amount: form.amount.value, currency: form.currency.value },
+            acceptedCurrencies: accepted.length ? accepted : undefined,
+        })
+        const rawKey = new Uint8Array(await crypto.subtle.exportKey('raw', key))
+        await postJson(
+            `/private-parts/${part.id}/key`,
+            await signedMessage({ app: 'subcult', type: 'register_key', privatePart: part.id, key: toHex(rawKey).slice(2), expiresAt: inMinutes(5) }),
+        )
+        form.reset()
+    })
+})
+
+$('import-key').addEventListener('submit', event => {
+    event.preventDefault()
+    const key = event.target.key.value.trim()
+    if (!/^0x[0-9a-fA-F]{64}$/.test(key)) return alert('a private key is 0x followed by 64 hex characters')
+    useKey(key)
+    event.target.reset()
+    if (currentNode) showNode(currentNode.id)
+})
+
+Promise.all([api('/config'), api('/currencies')]).then(([config, list]) => {
+    chainConfig = config
+    currencies = list
+    $('add-private').currency.replaceChildren(...list.filter(c => c.price).map(c => el('option', { value: c.id }, c.symbol)))
+    fill(
+        'accepted-currencies',
+        ...list.filter(c => c.payable).map(c => el('label', { style: 'display: inline' }, el('input', { type: 'checkbox', name: 'accepted', value: c.id, style: 'width: auto' }), ` ${c.symbol} `)),
+    )
+    showBalance()
+})

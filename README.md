@@ -10,6 +10,7 @@ Implements the node model from `DATA_MODELS.md`: nodes (sound, person, place) wi
 | `add_note` | A note on a node |
 | `add_connection` | A typed connection between two nodes, with a required note and an optional source |
 | `add_tag` | A tag on a node |
+| `add_private_part` | Encrypted content on a node, sold for a price; its key stays with the operator named as `keyHolder` |
 
 Records use format version 3 and share an envelope: `app`, `v`, `type`, `owner`, `createdAt`, `nonce`, `payload`, `signature`. The owner signs each record with EIP-191 `personal_sign` over the record without `signature`, serialized as JSON with sorted keys and no whitespace. The API and the indexer both recover the signer and reject records whose signature doesn't match `owner`; unknown fields and links other than `http(s)` are rejected. A node's id is the Swarm reference of its `add_node` record. A node with the same identity (a sound's source URL, a person's name, a place's name and location) is never created twice: the API adds to the existing node, and a duplicate `add_node` from another operator becomes an alias of the first.
 
@@ -21,10 +22,10 @@ Connection types: Recorded by, Played by DJ, Played at, Recorded at, Played in s
 | --- | --- |
 | `packages/backend` | API server: uploads media and record JSON to Swarm, writes Postgres, emits `notify(swarmRef)` via an outbox |
 | `packages/indexer` | Reads `Notification` events, fetches records from Swarm in parallel and applies them in chain order |
-| `packages/shared` | Record schemas, node identity, connection types, idempotent `applyRecord`, Swarm and chain helpers |
+| `packages/shared` | Record schemas, node identity, connection types, idempotent `applyRecord`, Swarm (bee-js) and chain helpers |
 | `packages/frontend` | Static test page served by nginx, proxies `/api` to the backend |
 
-Record ids are Swarm references, and every write is idempotent, so a record applied by the API and later seen on-chain by the indexer is stored once.
+Record ids are Swarm references, and every write is idempotent, so a record applied by the API and later seen on-chain by the indexer is stored once. Swarm access goes through bee-js; uploads are direct (not deferred) and pinned. Record references are computed locally with `@ethersphere/core-sdk`, both to check what Bee returns on upload and to verify every downloaded record, so an untrusted Bee node or gateway cannot substitute content.
 
 ## Compose files
 
@@ -92,6 +93,22 @@ Writing a record:
 | `GET` | `/connection-types` | types with their allowed node kinds |
 | `GET` | `/status` | outbox, indexer cursor and confirmation counts |
 
+## Paid content
+
+A private part is public metadata (price, seller, `encryptedRef`, `keyHolder`) over content encrypted with AES-256-GCM in the seller's browser. The decryption key never goes on Swarm or the chain: the seller hands it to the key holder operator, which stores it encrypted under `MASTER_KEY`.
+
+Prices are in USD; buyers pay in USDC or USDT on Ethereum mainnet, at 1:1, directly to the seller, and need ETH for gas. Payments are on a separate chain from the records (`PAYMENT_CHAIN_ID`, `PAYMENT_RPC_URL`). Currencies are CAIP-19 ids in the record format (`iso4217:USD`, `eip155:1/erc20:<token>`), so other price or payment currencies are a `CURRENCIES` change, not a format change.
+
+| Step | Call |
+| --- | --- |
+| Seller publishes | encrypt, `POST /media` the ciphertext, sign `add_private_part`, then `POST /private-parts/:id/key` with the key, signed |
+| Buyer looks up the price | `GET /private-parts/:id/payment`: the seller's address, the amount per accepted token, and `afterBlock` |
+| Buyer pays | a plain token transfer to the seller, from the buyer's address, from any wallet |
+| Buyer unlocks | `POST /unlock` with `{privatePart, buyer, txHash, expiresAt}` signed; the key comes back ECIES-encrypted to the buyer's public key |
+| Buyer returns | `POST /unlock` without `txHash` |
+
+Each private part records `paymentChainBlock`, the payment chain's head when it was published (filled in by prepare, checked against the real head on submit). An unlock is refused unless the transaction succeeded with enough confirmations, came from the buyer, paid the seller at least the price in an accepted token, landed in a later block than `paymentChainBlock`, and was not used before. Keys and purchases are operator-only tables: a replay rebuilds private parts but never touches them, and another operator can list a part but cannot sell it.
+
 ## Replay
 
 ```sh
@@ -102,4 +119,4 @@ Wipes the indexed tables and resets the cursor to `START_BLOCK`; the running ind
 
 ## Not in the POC
 
-Key management beyond a browser-generated key, label/show/subcult nodes, placements, follows and saves, payments and private parts, edits, retractions and merges.
+See `FURTHER_IMPROVEMENTS.md` for every scope cut and known limitation.

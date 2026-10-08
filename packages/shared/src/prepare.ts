@@ -1,3 +1,4 @@
+import { normalizeCurrencyId } from './currency.ts'
 import { normalizeTag } from './identity.ts'
 import type { RecordType } from './records.ts'
 
@@ -22,5 +23,21 @@ export function normalizeDraft(type: RecordType, payload: unknown): unknown {
     if (!draft || typeof draft !== 'object') return draft
     if (type === 'add_node') return { ...draft, tags: tagList(draft.tags) }
     if (type === 'add_tag' && typeof draft.tag === 'string') return { ...draft, tag: normalizeTag(draft.tag) }
+    if (type === 'add_private_part') return normalizePrivatePart(draft)
     return draft
+}
+
+function normalizePrivatePart(draft: Record<string, unknown>) {
+    const price = draft.price as { amount?: unknown; currency?: unknown } | undefined
+    const accepted = draft.acceptedCurrencies
+    return {
+        ...draft,
+        encryptedRef: typeof draft.encryptedRef === 'string' ? draft.encryptedRef.toLowerCase() : draft.encryptedRef,
+        iv: typeof draft.iv === 'string' ? draft.iv.toLowerCase() : draft.iv,
+        price: price && {
+            ...price,
+            currency: typeof price.currency === 'string' ? normalizeCurrencyId(price.currency) : price.currency,
+        },
+        acceptedCurrencies: Array.isArray(accepted) && accepted.length ? [...new Set(accepted.map(c => normalizeCurrencyId(String(c))))] : undefined,
+    }
 }

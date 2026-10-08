@@ -29,7 +29,12 @@
     <section>
         <strong>Signing key</strong> <code id="address"></code>
         <button id="new-key">New key</button>
-        <p class="muted">Every record is signed with this key, kept in this browser. Its address is the owner of what you add.</p>
+        <span class="muted" id="balance"></span>
+        <form id="import-key" class="row">
+            <input name="key" placeholder="import a private key (0x…), e.g. a funded test account to pay with" autocomplete="off">
+            <button style="flex: 0">Import</button>
+        </form>
+        <p class="muted">Every record and payment is signed with this key, kept in this browser. Its address is the owner of what you add.</p>
     </section>
 
     <section>
@@ -97,6 +102,22 @@
                 <input name="tags" placeholder="add tags, comma separated">
                 <button style="flex: 0">Tag</button>
             </form>
+
+            <h3>Private parts</h3>
+            <div id="detail-private"></div>
+            <details>
+                <summary>Sell a private part</summary>
+                <form id="add-private">
+                    <label>File (encrypted in your browser before upload) <input name="file" type="file" required></label>
+                    <label>Description <input name="description" placeholder="Liner notes, stems, the full set…"></label>
+                    <div class="row">
+                        <label>Price <input name="amount" placeholder="4.99" required></label>
+                        <label>Priced in <select name="currency"></select></label>
+                    </div>
+                    <div>Accept payment in <span class="muted">(none ticked: all)</span> <span id="accepted-currencies"></span></div>
+                    <button>Encrypt and publish</button>
+                </form>
+            </details>
 
             <h3>Connections</h3>
             <div id="detail-connections"></div>

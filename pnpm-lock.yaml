@@ -29,6 +29,9 @@ importers:
       '@subcult/shared':
         specifier: workspace:*
         version: link:../shared
+      eciesjs:
+        specifier: ^0.5.0
+        version: 0.5.0
       fastify:
         specifier: ^5.6.0
         version: 5.12.5
@@ -64,6 +67,12 @@ importers:
 
   packages/shared:
     dependencies:
+      '@ethersphere/bee-js':
+        specifier: ^13.1.0
+        version: 13.1.0
+      '@ethersphere/core-sdk':
+        specifier: ^0.2.1
+        version: 0.2.1
       pg:
         specifier: ^8.16.0
         version: 8.23.0
@@ -82,6 +91,12 @@ packages:
 
   '@adraffy/ens-normalize@1.11.1':
     resolution: {integrity: sha512-nhCBV3quEgesuf7c7KYfperqSS14T8bYuvJ8PcLJp6znkZpFc0AuW4qBtr8eKVyPPe/8RSr7sglCWPU5eaxwKQ==}
+
+  '@ecies/ciphers@0.2.6':
+    resolution: {integrity: sha512-patgsRPKGkhhoBjETV4XxD0En4ui5fbX0hzayqI3M8tvNMGUoUvmyYAIWwlxBc1KX5cturfqByYdj5bYGRpN9g==}
+    engines: {bun: '>=1', deno: '>=2.7.10', node: '>=16'}
+    peerDependencies:
+      '@noble/ciphers': ^1.0.0
 
   '@esbuild/aix-ppc64@0.28.2':
     resolution: {integrity: sha512-XExcO+dvLKvVtNTibSTBej1NCAbaGhWn9Ww1ZPx80qsahhPFe/8jgWP0IchNe0F3HwkU7n8ejhH8bjonqht8mQ==}
@@ -239,6 +254,19 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  '@ethersphere/bee-js@13.1.0':
+    resolution: {integrity: sha512-inQ0KeYrZqrHk5b+4DlOuTcPOShHHQlYttb/9QNJ1KWyTncun6mEHHYbFalEwy7PVgUdz5Idaw/0uyUGNJH2LQ==}
+    engines: {bee: 2.8.1-7cf53193, beeApiVersion: 8.1.0}
+    hasBin: true
+
+  '@ethersphere/core-sdk@0.1.1':
+    resolution: {integrity: sha512-qnDZleD2YK3s5PN/tXc8LnEtzh6BdcPTBjv7baoKSPMQPLeZ9wN/9qH1Zr2FNwhMgAIhgsqV7fB65LlzQ/a7oQ==}
+    engines: {node: '>=22'}
+
+  '@ethersphere/core-sdk@0.2.1':
+    resolution: {integrity: sha512-ccOWlJgmOYhWQrbAighu6rbZRkR7c43eDxy3byyBsmHtmRpy2pbBY5vZEO2V1pNdtJ7wY2B+IhKKX2r5DU1SNg==}
+    engines: {node: '>=22'}
+
   '@fastify/accept-negotiator@2.1.0':
     resolution: {integrity: sha512-F3EVbzWt+xcnVaOHmWyIlpuFtbxOln7HDZQsh09MtMmMm/CipMayNt8hnIL8VQi54u2ZociDbf+iluGYkf7B1A==}
 
@@ -291,6 +319,10 @@ packages:
 
   '@noble/curves@1.9.1':
     resolution: {integrity: sha512-k11yZxZg+t+gWvBbIswW0yoJlu8cHOC7dhunwOzoWH/mXGBiYyR4YY6hAEK/3EUs4UpB8la1RfdRpeGsFHkWsA==}
+    engines: {node: ^14.21.3 || >=16}
+
+  '@noble/curves@1.9.7':
+    resolution: {integrity: sha512-gbKGcRUYIjA3/zCCNaWDciTMFI0dCkvou3TL8Zmy5Nc7sJ47a0jtOeZoTaMxkuqRo9cRhjOdZJXegxYE5FN/xw==}
     engines: {node: ^14.21.3 || >=16}
 
   '@noble/hashes@1.8.0':
@@ -355,6 +387,9 @@ packages:
     resolution: {integrity: sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==}
     engines: {node: 20 || >=22}
 
+  cafe-utility@34.0.0:
+    resolution: {integrity: sha512-4gxiVyngFbRa1G10+DIDUjk/Qu8OMxgK5bnNXMj4y80Tc+RLdZlk+pE7scgediQS2cxn8L+3XauS8tE62EfsTg==}
+
   content-disposition@3.0.0:
     resolution: {integrity: sha512-ZH/0Xs9rMIFWCOmGdmS9eHBTF62qqQYNz4nVjQhkdIO/a0fCP4UIM3mRz/wiqL0L14YgAz/1xio4OaSY4+ON/A==}
     engines: {node: '>=22'}
@@ -379,6 +414,10 @@ packages:
   dequal@2.0.3:
     resolution: {integrity: sha512-0je+qPKHEMohvfRTCEo3CrPG6cAzAYgmzKyxRiYSSDkS6eGJdyVJm7WaYA5ECaAD9wLB2T4EEeymA5aFVcYXCA==}
     engines: {node: '>=6'}
+
+  eciesjs@0.5.0:
+    resolution: {integrity: sha512-s0J9SEVYAEPg7J63GFMApLYzPH9VNIQIyC6s15JpnqVc0TqcKWdbgFlnAweEBRyMmko2dcs2sfC83Hj4J43tuA==}
+    engines: {bun: '>=1', deno: '>=2.7.10', node: '>=16'}
 
   esbuild@0.28.2:
     resolution: {integrity: sha512-HKVLS8dvII+xoKW9kmqxbRKrnWEXfJJr/FZhhJmiqIB0e053QNYFqOBouTMO/k5sID4MvCiUCvv8b9M4h32wIA==}
@@ -452,6 +491,11 @@ packages:
   ipaddr.js@2.5.0:
     resolution: {integrity: sha512-aq+t5NAc+cS6rZQQVWC2x98CPqGtKKTMDd4Gaodv0wShnItdKg/51djkGJ1hqH+Oy0ivDftCbSLCQob8zso01w==}
     engines: {node: '>= 10'}
+
+  isomorphic-ws@5.0.0:
+    resolution: {integrity: sha512-muId7Zzn9ywDsyXgTIafTry2sV3nySZeUDe6YedVd1Hvuuep5AsIlqK+XefWpYTyJG5e503F2xIuT2lcU6rCSw==}
+    peerDependencies:
+      ws: '*'
 
   isows@1.0.7:
     resolution: {integrity: sha512-I1fSfDCZL5P0v33sVqeTDSpcstAg/N+wF5HS033mogOVIp4B+oHC7oOCsA3axAbBSGTJ8QubbNmnIRN/h8U7hg==}
@@ -695,6 +739,10 @@ snapshots:
 
   '@adraffy/ens-normalize@1.11.1': {}
 
+  '@ecies/ciphers@0.2.6(@noble/ciphers@1.3.0)':
+    dependencies:
+      '@noble/ciphers': 1.3.0
+
   '@esbuild/aix-ppc64@0.28.2':
     optional: true
 
@@ -772,6 +820,30 @@ snapshots:
 
   '@esbuild/win32-x64@0.28.2':
     optional: true
+
+  '@ethersphere/bee-js@13.1.0':
+    dependencies:
+      '@ethersphere/core-sdk': 0.1.1
+      cafe-utility: 34.0.0
+      debug: 4.4.3
+      isomorphic-ws: 5.0.0(ws@8.21.0)
+      semver: 7.8.5
+      ws: 8.21.0
+      zod: 4.6.5
+    transitivePeerDependencies:
+      - bufferutil
+      - supports-color
+      - utf-8-validate
+
+  '@ethersphere/core-sdk@0.1.1':
+    dependencies:
+      '@noble/curves': 1.9.7
+      '@noble/hashes': 1.8.0
+
+  '@ethersphere/core-sdk@0.2.1':
+    dependencies:
+      '@noble/curves': 1.9.7
+      '@noble/hashes': 1.8.0
 
   '@fastify/accept-negotiator@2.1.0': {}
 
@@ -854,6 +926,10 @@ snapshots:
     dependencies:
       '@noble/hashes': 1.8.0
 
+  '@noble/curves@1.9.7':
+    dependencies:
+      '@noble/hashes': 1.8.0
+
   '@noble/hashes@1.8.0': {}
 
   '@pinojs/redact@0.4.0': {}
@@ -912,6 +988,8 @@ snapshots:
     dependencies:
       balanced-match: 4.0.4
 
+  cafe-utility@34.0.0: {}
+
   content-disposition@3.0.0: {}
 
   cookie@1.1.1: {}
@@ -923,6 +1001,13 @@ snapshots:
   depd@2.0.0: {}
 
   dequal@2.0.3: {}
+
+  eciesjs@0.5.0:
+    dependencies:
+      '@ecies/ciphers': 0.2.6(@noble/ciphers@1.3.0)
+      '@noble/ciphers': 1.3.0
+      '@noble/curves': 1.9.7
+      '@noble/hashes': 1.8.0
 
   esbuild@0.28.2:
     optionalDependencies:
@@ -1038,6 +1123,10 @@ snapshots:
   inherits@2.0.4: {}
 
   ipaddr.js@2.5.0: {}
+
+  isomorphic-ws@5.0.0(ws@8.21.0):
+    dependencies:
+      ws: 8.21.0
 
   isows@1.0.7(ws@8.21.0):
     dependencies:

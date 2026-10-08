@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { recoverMessageAddress } from 'viem'
 import { z } from 'zod'
 import { canonicalJson } from './canonical.ts'
+import { currencyIdSchema, decimalAmountSchema, parseCurrencyId } from './currency.ts'
 import { normalizeTag } from './identity.ts'
 import { connectionTypeIds, nodeKinds, soundFormats } from './model.ts'
 
@@ -64,11 +65,40 @@ export const connectionPayloadSchema = z.strictObject({
 
 export const tagPayloadSchema = z.strictObject({ node: ref, tag })
 
+export const priceSchema = z.strictObject({ amount: decimalAmountSchema, currency: currencyIdSchema })
+
+export const privatePartPayloadSchema = z
+    .strictObject({
+        node: ref,
+        encryptedRef: ref,
+        iv: z.string().regex(/^[0-9a-f]{24}$/, 'the 12-byte AES-GCM IV as hex'),
+        contentType: z.string().regex(/^[a-z]+\/[a-z0-9.+-]+$/, 'a MIME type'),
+        description: text(1_000).optional(),
+        price: priceSchema,
+        acceptedCurrencies: z.array(currencyIdSchema).min(1).max(10).optional(),
+        keyHolder: webUrl.describe('the operator that holds the decryption key and handles unlocks'),
+        paymentChainBlock: z
+            .strictObject({ chainId: z.number().int().positive(), number: z.string().regex(/^\d+$/) })
+            .describe('the payment chain head at publication; only payments in later blocks unlock'),
+    })
+    .superRefine((part, ctx) => {
+        if (part.acceptedCurrencies && new Set(part.acceptedCurrencies).size !== part.acceptedCurrencies.length) {
+            ctx.addIssue({ code: 'custom', path: ['acceptedCurrencies'], message: 'currencies must be unique' })
+        }
+        for (const id of part.acceptedCurrencies ?? []) {
+            const parsed = parseCurrencyId(id)
+            if ('chainId' in parsed && parsed.chainId !== part.paymentChainBlock.chainId) {
+                ctx.addIssue({ code: 'custom', path: ['acceptedCurrencies'], message: `${id} is not on the payment chain` })
+            }
+        }
+    })
+
 const payloads = {
     add_node: nodePayloadSchema,
     add_note: notePayloadSchema,
     add_connection: connectionPayloadSchema,
     add_tag: tagPayloadSchema,
+    add_private_part: privatePartPayloadSchema,
 } as const
 
 export const recordTypes = Object.keys(payloads) as [keyof typeof payloads, ...(keyof typeof payloads)[]]
@@ -80,7 +110,7 @@ const envelope = {
     createdAt: z.iso.datetime(),
     nonce: z.string().regex(/^[0-9a-f]{32}$/),
 }
-const signature = z.string().regex(/^0x[0-9a-f]{130}$/, 'a 65-byte hex signature')
+export const signatureSchema = z.string().regex(/^0x[0-9a-f]{130}$/, 'a 65-byte hex signature')
 
 const variants = <S extends z.ZodRawShape>(extra: S) =>
     z.discriminatedUnion('type', [
@@ -88,10 +118,11 @@ const variants = <S extends z.ZodRawShape>(extra: S) =>
         z.strictObject({ ...envelope, ...extra, type: z.literal('add_note'), payload: payloads.add_note }),
         z.strictObject({ ...envelope, ...extra, type: z.literal('add_connection'), payload: payloads.add_connection }),
         z.strictObject({ ...envelope, ...extra, type: z.literal('add_tag'), payload: payloads.add_tag }),
+        z.strictObject({ ...envelope, ...extra, type: z.literal('add_private_part'), payload: payloads.add_private_part }),
     ])
 
 export const unsignedRecordSchema = variants({})
-export const recordSchema = variants({ signature })
+export const recordSchema = variants({ signature: signatureSchema })
 
 export type UnsignedRecord = z.infer<typeof unsignedRecordSchema>
 export type SubcultRecord = z.infer<typeof recordSchema>

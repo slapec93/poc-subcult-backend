@@ -58,6 +58,9 @@ export async function applyRecord(client: DbClient, ref: string, record: Subcult
             case 'add_tag':
                 await addTags(context, (await requireNode(client, record.payload.node)).id, [record.payload.tag])
                 break
+            case 'add_private_part':
+                await applyPrivatePart(context, record.payload)
+                break
         }
     }
     if (position) {
@@ -139,5 +142,30 @@ async function applyConnection({ client, ref, owner, createdAt }: Context, conne
         `INSERT INTO connections (id, from_id, type, to_id, owner, note, source, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (from_id, type, to_id) DO NOTHING`,
         [ref, from.id, connection.type, to.id, owner, connection.note, connection.source ?? null, createdAt],
+    )
+}
+
+async function applyPrivatePart({ client, ref, owner, createdAt }: Context, part: PayloadOf<'add_private_part'>) {
+    const node = await requireNode(client, part.node)
+    await client.query(
+        `INSERT INTO private_parts (id, node_id, owner, encrypted_ref, iv, content_type, description, price_amount,
+                                    price_currency, accepted_currencies, key_holder, payment_chain_id, payment_chain_block, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+        [
+            ref,
+            node.id,
+            owner,
+            part.encryptedRef,
+            part.iv,
+            part.contentType,
+            part.description ?? null,
+            part.price.amount,
+            part.price.currency,
+            part.acceptedCurrencies ?? null,
+            part.keyHolder,
+            part.paymentChainBlock.chainId,
+            part.paymentChainBlock.number,
+            createdAt,
+        ],
     )
 }
