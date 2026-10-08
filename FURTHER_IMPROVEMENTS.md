@@ -107,4 +107,4 @@ The browser downloads and decrypts the whole file in memory. Long audio needs ch
 - **Migrations:** no tool; schema changes from now on go into numbered files under `db/migrations/`.
 - **Postage:** batch TTL is not monitored and not topped up automatically; immutable batches, sized from effective capacity.
 - **Moderation:** none. Each operator could hide content in its own index; the chain keeps it.
-- **Docker on macOS:** after a Docker Desktop restart, image builds sometimes time out on npm. `docker build --network host` works around it; restarting Docker Desktop usually fixes it.
+- **Slow container networking:** Node races a host's addresses with 250 ms per attempt, and connects through Docker Desktop's NAT take about 460 ms, so `fetch` to multi-address hosts (Cloudflare: npm, publicnode, CoinGecko) failed with `ETIMEDOUT`. The Dockerfile raises the attempt timeout to 2 s via `NODE_OPTIONS`; running outside Docker on a slow network may need the same flag.
